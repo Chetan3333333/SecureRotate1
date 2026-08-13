@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SecureRotate User Portal</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="portal-body">
+    <main class="portal-shell">
+      <section class="portal-intro">
+        <div class="brand">
+          <div class="brand-mark">SR</div>
+          <div>
+            <strong>SecureRotate</strong>
+            <span>User Credential Portal</span>
+          </div>
+        </div>
+        <h1>Submit a database credential for expiry risk review</h1>
+        <p>
+          Enter metadata for a database account. The password is hashed on the server, and the admin dashboard receives
+          only the secure reference, risk score, recommendation, notifications, and audit history.
+        </p>
+        <div class="portal-links">
+          <a class="primary-link" href="/admin">Open Admin Dashboard</a>
+        </div>
+      </section>
+
+      <section class="panel submit-panel">
+        <form id="credentialForm">
+          <div class="form-grid">
+            <label>
+              <span>Your Name</span>
+              <input name="owner" required placeholder="Example: Chetan" />
+            </label>
+            <label>
+              <span>Application Owner</span>
+              <input name="app_owner" required placeholder="Example: Payments Team" />
+            </label>
+            <label>
+              <span>Database Name</span>
+              <input name="database_name" required placeholder="Example: StudentDB" />
+            </label>
+            <label>
+              <span>Database Username</span>
+              <input name="username" required placeholder="Example: app_user" />
+            </label>
+            <label>
+              <span>Password</span>
+              <input name="password" type="password" minlength="8" required placeholder="Minimum 8 characters" />
+            </label>
+            <label>
+              <span>Password Expiry Date</span>
+              <input name="expiry_date" type="date" required />
+            </label>
+            <label>
+              <span>Environment</span>
+              <select name="environment">
+                <option>Production</option>
+                <option selected>Staging</option>
+                <option>Development</option>
+              </select>
+            </label>
+            <label>
+              <span>Account Type</span>
+              <select name="account_type">
+                <option selected>Service</option>
+                <option>Human</option>
+              </select>
+            </label>
+            <label>
+              <span>Privilege</span>
+              <select name="privilege_level">
+                <option>Read</option>
+                <option selected>Write</option>
+                <option>Admin</option>
+              </select>
+            </label>
+            <label>
+              <span>Dependencies</span>
+              <input name="dependency_count" type="number" min="0" max="20" value="2" />
+            </label>
+            <label>
+              <span>Business Criticality</span>
+              <select name="criticality">
+                <option value="1">1 - Low</option>
+                <option value="2">2</option>
+                <option value="3" selected>3 - Medium</option>
+                <option value="4">4</option>
+                <option value="5">5 - Critical</option>
+              </select>
+            </label>
+            <label>
+              <span>Daily Usage</span>
+              <input name="usage_frequency" type="number" min="0" max="2000" value="120" />
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button class="primary-button" type="submit">Submit for Admin Review</button>
+            <button class="ghost-button" type="reset">Clear</button>
+          </div>
+        </form>
+
+        <div id="submitResult" class="submit-result"></div>
+      </section>
+    </main>
+    <script src="/user.js"></script>
+  </body>
+</html>
