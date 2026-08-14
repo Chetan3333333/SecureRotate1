@@ -8,15 +8,67 @@ import sqlite3
 import string
 import time
 from datetime import date, datetime, timedelta
+import math
+import random
+import os
+import smtplib
+import re
+from email.message import EmailMessage
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
+
+
+# --- EMAIL HELPER ---
+def extract_email(text):
+    match = re.search(r'[\w\.-]+@[\w\.-]+', str(text))
+    return match.group(0) if match else None
+
+def get_recipient_email(credential):
+    owner_val = credential["owner"] if "owner" in credential.keys() else ""
+    email = extract_email(owner_val)
+    if not email:
+        user_val = credential["username"] if "username" in credential.keys() else ""
+        email = extract_email(user_val)
+    return email
+
+def send_real_email(to_email, subject, body):
+    sender = os.environ.get("SMTP_EMAIL")
+    password = os.environ.get("SMTP_APP_PASSWORD")
+    
+    if not sender or not password or not to_email:
+        print(f"Skipping real email to {to_email} because SMTP credentials are not set.")
+        return False
+        
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["Subject"] = subject
+    msg["From"] = f"SecureRotate <{sender}>"
+    msg["To"] = to_email
+    
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(sender, password)
+        server.send_message(msg)
+        server.quit()
+        print(f"Successfully sent email to {to_email}")
+        return True
+    except Exception as e:
+        print(f"Failed to send email to {to_email}: {e}")
+        return False
+# --------------------
 
 
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
 DB_PATH = ROOT / "securerotate.db"
 MODEL_VERSION = "rf-surrogate-2.0-simplified"
+
+# --- SMTP Configuration for OTP Emails ---
+SMTP_EMAIL = "chetanchowdarychetan@gmail.com"
+SMTP_APP_PASSWORD = "ozpl bcwz rioc izeq"
+TOKEN_EXPIRY_MINUTES = 15
 
 
 def today() -> date:
@@ -224,6 +276,16 @@ def init_db() -> None:
                 details TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS reset_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token TEXT NOT NULL UNIQUE,
+                credential_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                otp_code TEXT,
+                otp_verified INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY (credential_id) REFERENCES credentials(id)
+            );
             """
         )
         count = conn.execute("SELECT COUNT(*) AS c FROM credentials").fetchone()["c"]
@@ -282,28 +344,60 @@ def seed_credentials(conn: sqlite3.Connection) -> None:
 
 def refresh_notifications(conn: sqlite3.Connection) -> None:
     rows = enriched_credentials(conn)
-    existing = {
-        row["credential_id"]
-        for row in conn.execute("SELECT credential_id FROM notifications WHERE status != 'Resolved'").fetchall()
-    }
     for credential in rows:
-        if credential["days_to_expiry"] <= 7 and credential["id"] not in existing:
-            recipients = ", ".join(credential["recommendation"]["stakeholders"])
-            message = (
-                f"{credential['database_name']} / {credential['username']} reaches expiry in "
-                f"{credential['days_to_expiry']} days. Recommended action: {credential['recommendation']['action']}."
-            )
-            conn.execute(
-                """
-                INSERT INTO notifications(credential_id, recipients, message, channel, status, created_at)
-                VALUES (?, ?, ?, 'Email + In-App', 'Sent', ?)
-                """,
-                (credential["id"], recipients, message, iso_now()),
-            )
-            conn.execute(
-                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                ("notification-engine", "notify_stakeholders", "credential", credential["id"], message, iso_now()),
-            )
+        if credential["days_to_expiry"] <= 7:
+            recipients = credential["owner"] + f" ({credential['username']})"
+            # Tiered Escalation Logic with Friendly Messages
+            days = credential["days_to_expiry"]
+            if days <= 0:
+                channel = 'Security Incident'
+                status = 'Escalated'
+                level = 'Expired'
+                message = f"Hi {credential['owner']},\n\nYour {credential['database_name']} database password has EXPIRED. Access is locked."
+            elif days == 1:
+                channel = 'Slack Urgent'
+                status = 'Sent'
+                level = 'Critical Warning'
+                message = f"Hi {credential['owner']},\n\nCritical Warning! Your {credential['database_name']} password expires in {days} day. Please rotate immediately."
+            elif days <= 3:
+                channel = 'Slack Urgent'
+                status = 'Sent'
+                level = 'Urgent Warning'
+                message = f"Hi {credential['owner']},\n\nUrgent Warning! Your {credential['database_name']} password expires in {days} days. Please rotate."
+            elif days <= 5:
+                channel = 'Email Reminder'
+                status = 'Sent'
+                level = 'Warning'
+                message = f"Hi {credential['owner']},\n\nWarning! Your {credential['database_name']} password expires in {days} days."
+            else:
+                channel = 'Email Reminder'
+                status = 'Sent'
+                level = 'Warning'
+                message = f"Hi {credential['owner']},\n\nWarning! Your {credential['database_name']} password expires in {days} days."
+                
+            # Check if this exact message was already sent for this credential
+            existing = conn.execute("SELECT id FROM notifications WHERE credential_id = ? AND message = ?", (credential["id"], message)).fetchone()
+            if not existing:
+                # Auto-resolve older automated alerts for this credential so the dashboard stays clean
+                conn.execute("UPDATE notifications SET status = 'Resolved' WHERE credential_id = ? AND status IN ('Sent', 'Reminded')", (credential["id"],))
+                
+                conn.execute(
+                    """
+                    INSERT INTO notifications(credential_id, recipients, message, channel, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (credential["id"], recipients, message, channel, status, iso_now()),
+                )
+                conn.execute(
+                    "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    ("notification-engine", "notify_stakeholders", "credential", credential["id"], message, iso_now()),
+                )
+                
+                # Send real email!
+                to_email = get_recipient_email(credential)
+                if to_email:
+                    subject = f"[{level}] SecureRotate: {credential['database_name']} Password Expiry"
+                    send_real_email(to_email, subject, message)
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -479,7 +573,17 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
     return {"history_id": history_id, "status": status, "verification_status": verification, "details": details}
 
 
-app = Flask(__name__, static_folder="public")
+import re
+from email.message import EmailMessage
+
+if os.path.exists(".env"):
+    with open(".env") as f:
+        for line in f:
+            if '=' in line and not line.strip().startswith('#'):
+                k, v = line.strip().split('=', 1)
+                os.environ[k] = v
+
+app = Flask(__name__, static_folder="public", static_url_path="")
 
 @app.route("/")
 def serve_index():
@@ -538,15 +642,35 @@ def api_recommendations():
 def api_notifications():
     with connect() as conn:
         refresh_notifications(conn)
-        rows = conn.execute(
-            """
-            SELECT n.*, c.database_name, c.username
-            FROM notifications n
-            JOIN credentials c ON c.id = n.credential_id
-            ORDER BY n.id DESC
-            """
-        ).fetchall()
-        return jsonify([row_to_dict(row) for row in rows])
+        # Get ALL credentials (one row per credential, no duplicates)
+        creds = conn.execute("SELECT * FROM credentials ORDER BY expiry_date ASC").fetchall()
+        result = []
+        for cred in creds:
+            c = row_to_dict(cred)
+            expiry = date.fromisoformat(c["expiry_date"])
+            c["days_to_expiry"] = (expiry - today()).days
+            # Get the latest notification for this credential (if any)
+            latest_noti = conn.execute(
+                "SELECT * FROM notifications WHERE credential_id = ? ORDER BY id DESC LIMIT 1",
+                (c["id"],),
+            ).fetchone()
+            if latest_noti:
+                n = row_to_dict(latest_noti)
+                c["notification_id"] = n["id"]
+                c["channel"] = n["channel"]
+                c["recipients"] = n["recipients"]
+                c["message"] = n["message"]
+                c["notification_status"] = n["status"]
+                c["sent_date"] = n["created_at"]
+            else:
+                c["notification_id"] = None
+                c["channel"] = "—"
+                c["recipients"] = c["owner"]
+                c["message"] = ""
+                c["notification_status"] = "No Alerts"
+                c["sent_date"] = "—"
+            result.append(c)
+        return jsonify(result)
 
 @app.route("/api/audit", methods=["GET"])
 def api_audit():
@@ -560,6 +684,27 @@ def api_analytics():
     with connect() as conn:
         refresh_notifications(conn)
         return jsonify(analytics_payload(conn, get_query_dict()))
+
+@app.route("/api/credentials/<int:credential_id>/test-alert", methods=["POST"])
+def api_test_alert(credential_id):
+    try:
+        with connect() as conn:
+            cred = conn.execute("SELECT * FROM credentials WHERE id = ?", (credential_id,)).fetchone()
+            if not cred:
+                return jsonify({"error": "Not found"}), 404
+            
+            # create a dummy notification for testing
+            message = f"Hi {cred['owner']},\n\n[TEST] Warning! Your {cred['database_name']} password expires soon."
+            conn.execute(
+                """
+                INSERT INTO notifications(credential_id, recipients, message, channel, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (credential_id, cred["owner"], message, "Email Reminder", "Sent", iso_now()),
+            )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
 
 @app.route("/api/rotate", methods=["POST"])
 def api_rotate():
@@ -583,6 +728,90 @@ def api_credentials_create():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
+@app.route("/api/credentials/<int:credential_id>/remind", methods=["POST"])
+def api_credentials_remind(credential_id):
+    payload = request.json or {}
+    try:
+        with connect() as conn:
+            credential = conn.execute("SELECT * FROM credentials WHERE id = ?", (credential_id,)).fetchone()
+            if not credential:
+                return jsonify({"error": "Not found"}), 404
+                
+            actor = payload.get("actor", "demo-admin")
+            
+            days = credential["days_to_expiry"]
+            if days <= 0:
+                level = 'Expired'
+                message = f"Hi {credential['owner']},\n\nYour {credential['database_name']} database password has EXPIRED. Access is locked."
+            elif days == 1:
+                level = 'Critical Warning'
+                message = f"Hi {credential['owner']},\n\nCritical Warning! Your {credential['database_name']} password expires in {days} day. Please rotate immediately."
+            elif days <= 3:
+                level = 'Urgent Warning'
+                message = f"Hi {credential['owner']},\n\nUrgent Warning! Your {credential['database_name']} password expires in {days} days. Please rotate."
+            else:
+                level = 'Warning'
+                message = f"Hi {credential['owner']},\n\nWarning! Your {credential['database_name']} password expires in {days} days."
+            
+            # Insert a notification so it shows on the Notifications tab too
+            conn.execute(
+                """
+                INSERT INTO notifications(credential_id, recipients, message, channel, status, created_at)
+                VALUES (?, ?, ?, 'Email Reminder', 'Sent', ?)
+                """,
+                (credential_id, f"{credential['owner']} ({credential['username']})", message, iso_now()),
+            )
+            
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (actor, "send_manual_reminder", "credential", credential_id, message, iso_now()),
+            )
+            
+            # Actually dispatch the email!
+            to_email = get_recipient_email(credential)
+            if to_email:
+                subject = f"[{level}] SecureRotate: {credential['database_name']} Password Expiry"
+                send_real_email(to_email, subject, message)
+                
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+@app.route("/api/credentials/<int:credential_id>/expiry", methods=["PUT"])
+def api_credentials_expiry(credential_id):
+    payload = request.json or {}
+    try:
+        new_days = int(payload.get("days", 0))
+        actor = payload.get("actor", "demo-admin")
+        
+        from datetime import datetime, timedelta
+        new_expiry_date = (datetime.now() + timedelta(days=new_days)).strftime("%Y-%m-%d")
+
+        with connect() as conn:
+            # Update expiry date globally
+            conn.execute(
+                "UPDATE credentials SET expiry_date = ? WHERE id = ?",
+                (new_expiry_date, credential_id)
+            )
+            # Log the action
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (actor, "update_expiry", "credential", credential_id, f"Admin updated expiry to {new_days} days.", iso_now()),
+            )
+            # Smart Resolution: if they push the expiry out safely, resolve active notifications!
+            if new_days > 7:
+                conn.execute(
+                    "UPDATE notifications SET status = 'Resolved' WHERE credential_id = ? AND status != 'Resolved'",
+                    (credential_id,)
+                )
+                
+            # Re-run notification engine to adjust to the new reality
+            refresh_notifications(conn)
+
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
 @app.route("/api/notifications/<int:notification_id>/ack", methods=["POST"])
 def api_notifications_ack(notification_id):
     payload = request.json or {}
@@ -600,12 +829,235 @@ def api_notifications_ack(notification_id):
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
+@app.route("/api/notifications/<int:notification_id>/remind", methods=["POST"])
+def api_notifications_remind(notification_id):
+    payload = request.json or {}
+    try:
+        with connect() as conn:
+            noti = conn.execute("SELECT * FROM notifications WHERE id = ?", (notification_id,)).fetchone()
+            if not noti:
+                return jsonify({"error": "Not found"}), 404
+            
+            cred_row = conn.execute("SELECT * FROM credentials WHERE id = ?", (noti["credential_id"],)).fetchone()
+            cred = row_to_dict(cred_row)
+            
+            # Generate a one-time magic link token
+            token = secrets.token_urlsafe(32)
+            conn.execute(
+                "INSERT INTO reset_tokens(token, credential_id, created_at) VALUES (?, ?, ?)",
+                (token, cred["id"], iso_now()),
+            )
+            
+            # Prepare mailto payload with magic link
+            to_email = get_recipient_email(cred) or ""
+            subject = f"[{noti['channel']}] SecureRotate: {cred['database_name']} Reminder"
+            base_message = noti["message"]
+            # Use public tunnel URL if available, otherwise fall back to local
+            public_base = os.environ.get("PUBLIC_URL", request.host_url).rstrip("/")
+            reset_url = f"{public_base}/reset/{token}"
+            message = f"{base_message}\n\n🔐 Reset your password securely:\n{reset_url}"
+                
+            conn.execute(
+                "UPDATE notifications SET status = 'Reminded' WHERE id = ?",
+                (notification_id,),
+            )
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (payload.get("actor", "demo-admin"), "send_manual_reminder", "notification", notification_id, "Admin manually pushed a reminder email with magic reset link.", iso_now()),
+            )
+        return jsonify({
+            "ok": True,
+            "mailto": {
+                "to": to_email,
+                "subject": subject,
+                "body": message
+            }
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+@app.route("/api/notifications/<int:notification_id>/undo", methods=["POST"])
+def api_notifications_undo(notification_id):
+    try:
+        with connect() as conn:
+            conn.execute("UPDATE notifications SET status = 'Sent' WHERE id = ?", (notification_id,))
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                ("demo-admin", "undo_notification", "notification", notification_id, "Admin reverted notification status to Sent.", iso_now()),
+            )
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+def is_token_expired(created_at_str):
+    created = datetime.fromisoformat(created_at_str)
+    return (datetime.now() - created).total_seconds() > TOKEN_EXPIRY_MINUTES * 60
+
+def send_otp_email(to_email, otp_code, db_name):
+    """Send OTP code via real Gmail SMTP."""
+    subject = f"[SecureRotate] Your verification code: {otp_code}"
+    body = (
+        f"Your SecureRotate one-time verification code is:\n\n"
+        f"    {otp_code}\n\n"
+        f"This code is for resetting your {db_name} database password.\n"
+        f"It expires in {TOKEN_EXPIRY_MINUTES} minutes. Do not share this code.\n\n"
+        f"If you did not request this, please ignore this email."
+    )
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg["Subject"] = subject
+    msg["From"] = f"SecureRotate <{SMTP_EMAIL}>"
+    msg["To"] = to_email
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_APP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        print(f"\n{'='*50}")
+        print(f"  OTP SENT to {to_email}: {otp_code}")
+        print(f"{'='*50}\n")
+        return True
+    except Exception as e:
+        print(f"Failed to send OTP email: {e}")
+        return False
+
+@app.route("/reset/<token>")
+def serve_reset_page(token):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM reset_tokens WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return "<h1>Link Expired</h1><p>This reset link has already been used or is invalid.</p>", 404
+        if is_token_expired(row["created_at"]):
+            conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+            return "<h1>Link Expired</h1><p>This reset link has expired. Please request a new one from your admin.</p>", 410
+    return send_file(PUBLIC / "reset.html")
+
+@app.route("/api/reset/<token>", methods=["GET"])
+def api_reset_info(token):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM reset_tokens WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return jsonify({"error": "This reset link has already been used or is invalid."}), 404
+        if is_token_expired(row["created_at"]):
+            conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+            return jsonify({"error": "This reset link has expired. Please request a new one."}), 410
+        cred = conn.execute("SELECT id, database_name, username, owner FROM credentials WHERE id = ?", (row["credential_id"],)).fetchone()
+        return jsonify({
+            "database_name": cred["database_name"],
+            "username": cred["username"],
+            "owner": cred["owner"],
+            "otp_verified": bool(row["otp_verified"]),
+        })
+
+@app.route("/api/reset/<token>/send-otp", methods=["POST"])
+def api_send_otp(token):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM reset_tokens WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return jsonify({"error": "Invalid link."}), 404
+        if is_token_expired(row["created_at"]):
+            conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+            return jsonify({"error": "This link has expired."}), 410
+        cred = conn.execute("SELECT * FROM credentials WHERE id = ?", (row["credential_id"],)).fetchone()
+        to_email = get_recipient_email(row_to_dict(cred))
+        if not to_email:
+            return jsonify({"error": "No email found for this credential."}), 400
+        
+        # Generate 6-digit OTP
+        otp_code = str(random.randint(100000, 999999))
+        conn.execute("UPDATE reset_tokens SET otp_code = ?, otp_verified = 0 WHERE token = ?", (otp_code, token))
+        
+        # Send real email
+        sent = send_otp_email(to_email, otp_code, cred["database_name"])
+        
+        return jsonify({"ok": True, "sent": sent, "email_hint": to_email[:3] + "***" + to_email[to_email.index("@"):]}) 
+
+@app.route("/api/reset/<token>/verify-otp", methods=["POST"])
+def api_verify_otp(token):
+    payload = request.json or {}
+    submitted_code = str(payload.get("otp", "")).strip()
+    if not submitted_code:
+        return jsonify({"error": "Please enter the verification code."}), 400
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM reset_tokens WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return jsonify({"error": "Invalid link."}), 404
+        if is_token_expired(row["created_at"]):
+            conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+            return jsonify({"error": "This link has expired."}), 410
+        if not row["otp_code"]:
+            return jsonify({"error": "Please request an OTP first."}), 400
+        if submitted_code != row["otp_code"]:
+            return jsonify({"error": "Invalid code. Please try again."}), 400
+        
+        conn.execute("UPDATE reset_tokens SET otp_verified = 1 WHERE token = ?", (token,))
+        return jsonify({"ok": True})
+
+@app.route("/api/reset/<token>", methods=["POST"])
+def api_reset_password(token):
+    payload = request.json or {}
+    new_password = payload.get("password", "").strip()
+    if not new_password or len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters."}), 400
+    try:
+        with connect() as conn:
+            row = conn.execute("SELECT * FROM reset_tokens WHERE token = ?", (token,)).fetchone()
+            if not row:
+                return jsonify({"error": "This reset link has already been used or is invalid."}), 404
+            if is_token_expired(row["created_at"]):
+                conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+                return jsonify({"error": "This link has expired."}), 410
+            if not row["otp_verified"]:
+                return jsonify({"error": "OTP verification required before resetting password."}), 403
+            
+            credential_id = row["credential_id"]
+            cred = conn.execute("SELECT * FROM credentials WHERE id = ?", (credential_id,)).fetchone()
+            
+            # Hash the new password
+            new_salt = secrets.token_hex(16)
+            new_hash = hash_secret(new_password, new_salt)
+            new_expiry = (today() + timedelta(days=90)).isoformat()
+            
+            # Update the credential
+            conn.execute(
+                "UPDATE credentials SET password_hash = ?, password_salt = ?, expiry_date = ?, last_rotated_at = ?, status = 'Active' WHERE id = ?",
+                (new_hash, new_salt, new_expiry, today().isoformat(), credential_id),
+            )
+            
+            # Delete the one-time token
+            conn.execute("DELETE FROM reset_tokens WHERE token = ?", (token,))
+            
+            # Resolve all active notifications for this credential
+            conn.execute(
+                "UPDATE notifications SET status = 'Resolved' WHERE credential_id = ? AND status IN ('Sent', 'Reminded', 'Escalated')",
+                (credential_id,),
+            )
+            
+            # Log the rotation
+            conn.execute(
+                "INSERT INTO rotation_history(credential_id, requested_by, status, started_at, completed_at, verification_status, details) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (credential_id, cred["owner"], "Completed", iso_now(), iso_now(), "Verified", "Password reset via secure magic link."),
+            )
+            conn.execute(
+                "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (cred["owner"], "password_reset_via_magic_link", "credential", credential_id, f"User reset password for {cred['database_name']}/{cred['username']} via magic link. New expiry: {new_expiry}.", iso_now()),
+            )
+            
+            # Refresh notifications so dashboard is up to date
+            refresh_notifications(conn)
+            
+        return jsonify({"ok": True, "new_expiry": new_expiry})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
 @app.route("/api/demo/reset", methods=["POST"])
 def api_demo_reset():
     try:
         with connect() as conn:
             conn.executescript(
                 """
+                DROP TABLE IF EXISTS reset_tokens;
                 DROP TABLE IF EXISTS notifications;
                 DROP TABLE IF EXISTS rotation_history;
                 DROP TABLE IF EXISTS audit_logs;
@@ -620,6 +1072,16 @@ def api_demo_reset():
 def run(host: str = "127.0.0.1", port: int = 8000) -> None:
     init_db()
     print(f"SecureRotate running at http://{host}:{port}")
+    
+    # If TUNNEL mode is enabled, start a Cloudflare tunnel for public access
+    if os.environ.get("TUNNEL") == "1":
+        try:
+            from flask_cloudflared import run_with_cloudflared
+            run_with_cloudflared(app)
+            print("Cloudflare Tunnel starting... Public URL will appear below.")
+        except Exception as e:
+            print(f"Could not start tunnel: {e}")
+    
     app.run(host=host, port=port, debug=True, use_reloader=False)
 
 if __name__ == "__main__":

@@ -1,16 +1,16 @@
 const state = {
   view: "dashboard",
   credentials: [],
-  recommendations: [],
   notifications: [],
-  audit: [],
+  recommendations: [],
   analytics: null,
-  summary: null,
-  selectedId: null,
   filters: {
     search: "",
     risk: "All",
+    account_type: "All",
   },
+  selectedId: null,
+  notificationFilter: "All",
 };
 
 const riskColors = {
@@ -172,7 +172,7 @@ function renderCredentialRows() {
 
 function renderExplorerRows() {
   $("#explorerRows").innerHTML = state.credentials
-    .map((item) => credentialTableRow(item, ["database", "username", "owner", "risk", "action"]))
+    .map((item) => credentialTableRow(item, ["database", "username", "owner", "expiry_action"]))
     .join("");
 }
 
@@ -191,6 +191,10 @@ function credentialTableRow(item, columns) {
     risk: `<td>${riskPill(item.risk)} <span class="muted">${Math.round(item.risk_probability * 100)}%</span></td>`,
     expiry: `<td class="${item.days_to_expiry < 0 ? "danger-text" : ""}">${escapeHtml(expiryText(item.days_to_expiry))}</td>`,
     action: `<td>${escapeHtml(item.recommendation.action)}</td>`,
+    expiry_action: `<td style="display: flex; align-items: center; justify-content: space-between;">
+      <span class="${item.days_to_expiry < 0 ? "danger-text" : ""}">${escapeHtml(expiryText(item.days_to_expiry))}</span>
+      <button class="small-button ghost-button" style="padding: 2px 6px;" data-edit-expiry="${item.id}">✏️ Edit</button>
+    </td>`,
   };
   return `<tr data-select="${item.id}" class="${item.id === state.selectedId ? "selected" : ""}">${columns.map((key) => cells[key]).join("")}</tr>`;
 }
@@ -268,22 +272,52 @@ function renderRotationTarget() {
 }
 
 function renderNotifications() {
-  $("#notificationList").innerHTML = state.notifications
-    .map((item) => `
-      <article class="notification-item">
-        <div class="notification-topline">
-          <div>
-            <p class="eyebrow">${escapeHtml(item.channel)}</p>
-            <h2>${escapeHtml(item.database_name)}</h2>
-            <p class="muted">${escapeHtml(item.username)} - ${escapeHtml(item.created_at)}</p>
+  const filtered = state.notifications.filter(item => {
+    if (state.notificationFilter === "All") return true;
+    return item.notification_status === state.notificationFilter;
+  });
+
+  $("#notificationList").innerHTML = filtered
+    .map((item) => {
+      const status = item.notification_status;
+      const days = item.days_to_expiry;
+      const daysText = days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "Today" : `${days} days`;
+      const daysClass = days <= 3 ? "danger-text" : days <= 7 ? "warning-text" : "";
+
+      let statusClass = "env";
+      if (status === "Escalated") statusClass = "risk-Critical";
+      else if (status === "Sent") statusClass = "risk-High";
+      else if (status === "Reminded") statusClass = "risk-Low";
+      else if (status === "No Alerts") statusClass = "env";
+
+      let actions = "";
+      if (status === "Sent" && item.notification_id) {
+        actions = `<button class="small-button" data-ack="${item.notification_id}">Acknowledge</button> <button class="small-button ghost-button" style="margin-left: 8px; border: 1px solid var(--border);" data-remind="${item.notification_id}">Send Reminder</button>`;
+      } else if (status === "No Alerts") {
+        actions = `<span class="muted" style="color: #10b981;">✓ Secure</span> <button class="small-button ghost-button" style="margin-left: 8px; font-size: 0.8em; padding: 2px 6px;" data-test-alert="${item.id}">Test Alert</button>`;
+      } else if (item.notification_id) {
+        actions = `<span class="muted">${escapeHtml(status)}</span> <button class="small-button ghost-button" style="margin-left: 8px; font-size: 0.8em; padding: 2px 6px;" data-undo="${item.notification_id}">Undo</button>`;
+      } else {
+        actions = `<span class="muted">${escapeHtml(status)}</span>`;
+      }
+
+      const isEscalated = status === "Escalated";
+
+      return `
+      <tr class="${isEscalated ? "danger-text" : ""}" style="${isEscalated ? "background: #fef2f2;" : ""}">
+        <td>
+          <div class="credential-name">
+            <strong>${escapeHtml(item.database_name)}</strong>
+            <span class="muted">${escapeHtml(item.username)}</span>
           </div>
-          <span class="pill ${item.status === "Acknowledged" ? "risk-Low" : item.status === "Resolved" ? "env" : "risk-High"}">${escapeHtml(item.status)}</span>
-        </div>
-        <p>${escapeHtml(item.message)}</p>
-        <p class="muted">Recipients: ${escapeHtml(item.recipients)}</p>
-        ${item.status === "Sent" ? `<button class="small-button" data-ack="${item.id}">Acknowledge</button>` : ""}
-      </article>
-    `)
+        </td>
+        <td>${escapeHtml(item.owner)}</td>
+        <td class="${daysClass}"><strong>${daysText}</strong></td>
+        <td><span class="pill ${statusClass}">${escapeHtml(status)}</span></td>
+        <td>${actions}</td>
+      </tr>
+      `;
+    })
     .join("");
 }
 
@@ -371,6 +405,36 @@ function bindEvents() {
     refreshAll();
   });
   document.body.addEventListener("click", async (event) => {
+    const editExpiryTarget = event.target.closest("[data-edit-expiry]");
+    if (editExpiryTarget) {
+      event.stopPropagation(); // prevent row selection
+      const credId = editExpiryTarget.dataset.editExpiry;
+      const cred = state.credentials.find(c => String(c.id) === credId);
+      if (!cred) return;
+      const newDays = prompt(`Enter new days to expiry for ${cred.database_name} (${cred.owner}):`, cred.days_to_expiry);
+      if (newDays !== null) {
+        const parsedDays = parseInt(newDays, 10);
+        if (!isNaN(parsedDays)) {
+          await api(`/api/credentials/${credId}/expiry`, {
+            method: "PUT",
+            body: JSON.stringify({ days: parsedDays, actor: "demo-admin" })
+          });
+          showToast("Success", "Expiry updated globally.");
+          await refreshAll();
+        } else {
+          showToast("Error", "Invalid number entered.");
+        }
+      }
+      return;
+    }
+    if (event.target.matches("#notificationFilters button")) {
+      const filter = event.target.dataset.filter;
+      state.notificationFilter = filter;
+      $$("#notificationFilters button").forEach(btn => btn.className = "small-button ghost-button");
+      event.target.className = "active small-button";
+      renderNotifications();
+      return;
+    }
     const selectTarget = event.target.closest("[data-select]");
     if (selectTarget) {
       state.selectedId = Number(selectTarget.dataset.select);
@@ -384,6 +448,41 @@ function bindEvents() {
         body: JSON.stringify({ actor: "demo-admin" }),
       });
       showToast("Acknowledged", "Notification has been acknowledged and audited.");
+      await refreshAll();
+    }
+    const remindTarget = event.target.closest("[data-remind]");
+    if (remindTarget) {
+      const res = await api(`/api/notifications/${remindTarget.dataset.remind}/remind`, {
+        method: "POST",
+        body: JSON.stringify({ actor: "demo-admin" }),
+      });
+      if (res && res.mailto) {
+        const m = res.mailto;
+        const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(m.to)}&su=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
+        window.open(gmailUrl, '_blank');
+        
+        // Extract the magic link to make it clickable on the dashboard
+        const magicLinkMatch = m.body.match(/(http:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
+        if (magicLinkMatch) {
+            showToast("Reminder Drafted", `Gmail opened in a new tab.<br><br><b>For testing:</b> <a href="${magicLinkMatch[1]}" target="_blank" style="color: #60a5fa; text-decoration: underline;">Click here to open the Magic Link</a> directly.`, true, 10000);
+        } else {
+            showToast("Gmail Opened", "A new tab has been opened with your drafted message.");
+        }
+      } else {
+        showToast("Email Drafted", "Notification status updated.");
+      }
+      await refreshAll();
+    }
+    const undoTarget = event.target.closest("[data-undo]");
+    if (undoTarget) {
+      await api(`/api/notifications/${undoTarget.dataset.undo}/undo`, { method: "POST" });
+      showToast("Undone", "Notification status reverted to Sent.");
+      await refreshAll();
+    }
+    const testAlertTarget = event.target.closest("[data-test-alert]");
+    if (testAlertTarget) {
+      await api(`/api/credentials/${testAlertTarget.dataset.testAlert}/test-alert`, { method: "POST" });
+      showToast("Alert Generated", "A test notification has been created for this credential.");
       await refreshAll();
     }
   });
@@ -403,7 +502,7 @@ function debounceRefresh() {
   refreshTimer = setTimeout(refreshAll, 250);
 }
 
-function showToast(title, message) {
+function showToast(title, message, isHtml = false, duration = 4000) {
   let container = document.querySelector(".toast-container");
   if (!container) {
     container = document.createElement("div");
@@ -412,12 +511,12 @@ function showToast(title, message) {
   }
   const toast = document.createElement("div");
   toast.className = "toast";
-  toast.innerHTML = `<h4>${escapeHtml(title)}</h4><p>${escapeHtml(message)}</p>`;
+  toast.innerHTML = `<h4>${escapeHtml(title)}</h4><p style="margin-top: 4px;">${isHtml ? message : escapeHtml(message)}</p>`;
   container.appendChild(toast);
   setTimeout(() => {
     toast.classList.add("hiding");
     toast.addEventListener("animationend", () => toast.remove());
-  }, 4000);
+  }, duration);
 }
 
 bindEvents();

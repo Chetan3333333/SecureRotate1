@@ -166,7 +166,7 @@
           <section class="panel">
             <div class="panel-heading" style="display: flex; justify-content: space-between; align-items: center;">
               <div>
-                <p class="eyebrow">All Users</p>
+                <p class="eyebrow">Active Alerts</p>
                 <h2>Notification Command Center</h2>
               </div>
               <div class="quick-filters" id="notificationFilters" style="display: flex; gap: 8px;">
@@ -174,16 +174,17 @@
                 <button class="small-button ghost-button" data-filter="Escalated">Escalated</button>
                 <button class="small-button ghost-button" data-filter="Sent">Sent</button>
                 <button class="small-button ghost-button" data-filter="Reminded">Reminded</button>
-                <button class="small-button ghost-button" data-filter="No Alerts">No Alerts</button>
+                <button class="small-button ghost-button" data-filter="Acknowledged">Acknowledged</button>
               </div>
             </div>
             <div class="table-wrap large">
               <table>
                 <thead>
                   <tr>
-                    <th>Database</th>
-                    <th>Owner</th>
-                    <th>Days Left</th>
+                    <th>Channel</th>
+                    <th>Target</th>
+                    <th>Recipients</th>
+                    <th>Sent Date</th>
                     <th>Status</th>
                     <th>Action</th>
                   </tr>
@@ -230,6 +231,6 @@
         </section>
       </main>
     </div>
-    <script src="/app.js?v=10"></script>
+    <script src="/app.js?v=8"></script>
   </body>
 </html>
