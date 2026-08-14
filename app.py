@@ -601,7 +601,7 @@ app = Flask(__name__, static_folder="public")
 
 @app.route("/")
 def serve_index():
-    return send_file(PUBLIC / "index.html")
+    return send_file(PUBLIC / "login.html")
 
 @app.route("/admin")
 def serve_admin():
@@ -619,6 +619,15 @@ def serve_static(filename):
 
 def get_query_dict():
     return {k: request.args.getlist(k) for k in request.args.keys()}
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    payload = request.json or {}
+    email = payload.get("email", "")
+    password = payload.get("password", "")
+    if email == "admin@securedb.com" and password == "admin123":
+        return jsonify({"ok": True})
+    return jsonify({"error": "Invalid credentials"}), 401
 
 @app.route("/api/summary", methods=["GET"])
 def api_summary():
