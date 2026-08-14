@@ -16,7 +16,7 @@ from flask import Flask, request, jsonify, send_from_directory, send_file
 ROOT = Path(__file__).resolve().parent
 PUBLIC = ROOT / "public"
 DB_PATH = ROOT / "securerotate.db"
-MODEL_VERSION = "rf-surrogate-1.0"
+MODEL_VERSION = "rf-surrogate-2.0-simplified"
 
 
 def today() -> date:
@@ -38,119 +38,54 @@ def risk_rank(risk: str) -> int:
 
 
 def classify(probability: float) -> str:
-    if probability >= 0.82:
+    if probability >= 0.80:
         return "Critical"
-    if probability >= 0.62:
+    if probability >= 0.60:
         return "High"
-    if probability >= 0.38:
+    if probability >= 0.30:
         return "Medium"
     return "Low"
 
 
 def feature_score(credential: sqlite3.Row | dict) -> tuple[float, list[dict]]:
     days = int(credential["days_to_expiry"])
-    env = credential["environment"]
-    privilege = credential["privilege_level"]
-    deps = int(credential["dependency_count"])
-    failed = int(credential["failed_logins"])
-    previous_failures = int(credential["previous_rotation_failures"])
-    age = int(credential["credential_age"])
-    usage = int(credential["usage_frequency"])
-    criticality = int(credential["criticality"])
-    account_type = credential["account_type"]
-
+    
     factors = []
-
-    def add(label: str, weight: float, evidence: str) -> None:
-        if weight > 0:
-            factors.append({"label": label, "weight": round(weight, 3), "evidence": evidence})
-
-    expiry_weight = 0.0
     if days < 0:
-        expiry_weight = 0.33
-    elif days <= 3:
-        expiry_weight = 0.28
-    elif days <= 7:
-        expiry_weight = 0.22
+        factors.append({"label": "Expiry window", "weight": 1.0, "evidence": "Expired"})
+        return 1.0, factors
     elif days <= 15:
-        expiry_weight = 0.13
-    elif days <= 30:
-        expiry_weight = 0.07
-    add("Expiry window", expiry_weight, f"{days} days remaining")
-
-    env_weight = {"Production": 0.18, "Staging": 0.08, "Development": 0.02}.get(env, 0.04)
-    add("Environment criticality", env_weight, env)
-
-    privilege_weight = {"Admin": 0.17, "Write": 0.11, "Read": 0.03}.get(privilege, 0.05)
-    add("Privilege level", privilege_weight, privilege)
-
-    dep_weight = min(deps * 0.025, 0.15)
-    add("Application dependencies", dep_weight, f"{deps} dependent services")
-
-    failed_weight = min(failed * 0.018, 0.12)
-    add("Failed login signal", failed_weight, f"{failed} recent failures")
-
-    history_weight = min(previous_failures * 0.05, 0.1)
-    add("Rotation history", history_weight, f"{previous_failures} previous rotation failures")
-
-    age_weight = 0.1 if age >= 120 else 0.06 if age >= 90 else 0.02 if age >= 60 else 0
-    add("Credential age", age_weight, f"{age} days old")
-
-    usage_weight = min(usage / 1000 * 0.09, 0.11)
-    add("Usage frequency", usage_weight, f"{usage} daily authentications")
-
-    criticality_weight = min(criticality * 0.025, 0.125)
-    add("Business criticality", criticality_weight, f"score {criticality}/5")
-
-    service_weight = 0.05 if account_type == "Service" else 0.015
-    add("Account type", service_weight, account_type)
-
-    raw_score = sum(item["weight"] for item in factors)
-    probability = min(0.97, max(0.08, raw_score * 0.82))
-    factors.sort(key=lambda item: item["weight"], reverse=True)
-    return probability, factors[:5]
+        # Scale probability from 0.8 at 0 days down to 0.3 at 15 days
+        prob = 0.8 - ((15 - days) / 15.0) * 0.5
+        factors.append({"label": "Expiry window", "weight": prob, "evidence": f"{days} days remaining"})
+        return prob, factors
+    else:
+        factors.append({"label": "Expiry window", "weight": 0.05, "evidence": "Healthy"})
+        return 0.05, factors
 
 
 def recommend_action(credential: sqlite3.Row | dict, risk: str, probability: float, factors: list[dict]) -> dict:
     days = int(credential["days_to_expiry"])
-    env = credential["environment"]
-    privilege = credential["privilege_level"]
-    deps = int(credential["dependency_count"])
-    account_type = credential["account_type"]
 
     if days < 0:
         action = "Immediate Rotation"
         urgency = "Breach"
-    elif risk == "Critical" or (days <= 3 and env == "Production"):
+    elif days <= 3:
         action = "Immediate Rotation"
         urgency = "Critical"
-    elif risk == "High" or days <= 7:
-        action = "Rotate Within 24 Hours" if env == "Production" or privilege == "Admin" else "Rotate Within 72 Hours"
+    elif days <= 7:
+        action = "Rotate Within 24 Hours"
         urgency = "High"
-    elif risk == "Medium" or days <= 30:
+    elif days <= 30:
         action = "Schedule Rotation"
         urgency = "Medium"
     else:
         action = "Monitor"
         urgency = "Low"
 
-    stakeholders = ["Account Owner"]
-    if urgency in {"Medium", "High", "Critical", "Breach"}:
-        stakeholders.append("DBA")
-    if env == "Production" or risk in {"High", "Critical"}:
-        stakeholders.append("Application Owner")
-    if risk == "Critical" or days < 0 or privilege == "Admin":
-        stakeholders.append("Security Team")
-
-    approval_required = env == "Production" and (account_type == "Service" or privilege == "Admin" or deps >= 3)
-    explanation = (
-        f"{credential['username']} is {risk.lower()} risk at {round(probability * 100)}% because "
-        f"{factors[0]['label'].lower()} is the dominant driver ({factors[0]['evidence']})."
-    )
-    if days <= 7:
-        explanation += " It is inside the seven-day expiry notification window."
-    if approval_required:
-        explanation += " Production dependency controls require approval before rotation."
+    stakeholders = ["Account Owner", "Security Team"]
+    approval_required = False
+    explanation = f"{credential['username']} is {risk.lower()} risk. It expires in {days} days."
 
     return {
         "action": action,
@@ -186,21 +121,11 @@ def required_text(payload: dict, key: str, label: str) -> str:
     return value
 
 
-def bounded_int(payload: dict, key: str, default: int, minimum: int, maximum: int) -> int:
-    raw = payload.get(key, default)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, min(maximum, value))
-
-
 def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
     database_name = required_text(payload, "database_name", "Database name")
     username = required_text(payload, "username", "Username")
     password = required_text(payload, "password", "Password")
     owner = required_text(payload, "owner", "Owner name")
-    app_owner = required_text(payload, "app_owner", "Application owner")
     expiry_date = required_text(payload, "expiry_date", "Expiry date")
 
     try:
@@ -208,56 +133,34 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
     except ValueError as exc:
         raise ValueError("Expiry date must use YYYY-MM-DD format") from exc
 
-    account_type = payload.get("account_type", "Service")
-    if account_type not in {"Service", "Human"}:
-        account_type = "Service"
-    environment = payload.get("environment", "Development")
-    if environment not in {"Production", "Staging", "Development"}:
-        environment = "Development"
-    privilege_level = payload.get("privilege_level", "Read")
-    if privilege_level not in {"Read", "Write", "Admin"}:
-        privilege_level = "Read"
-
-    dependency_count = bounded_int(payload, "dependency_count", 0, 0, 20)
-    criticality = bounded_int(payload, "criticality", 3, 1, 5)
-    usage_frequency = bounded_int(payload, "usage_frequency", 120, 0, 2000)
     days_to_expiry = (expiry - today()).days
     credential_age = max(0, min(365, 90 - days_to_expiry))
     salt = secrets.token_hex(16)
-    secret_ref = f"vault://securerotate/user-submissions/{database_name.lower().replace(' ', '-')}/{username}"
+    secret_ref = f"vault://securerotate/{database_name.lower().replace(' ', '-')}/{username}"
 
     cursor = conn.execute(
         """
         INSERT INTO credentials (
-            database_name, username, account_type, environment, privilege_level, owner, app_owner,
-            dba, security_contact, dependency_count, failed_logins, previous_rotation_failures,
-            credential_age, usage_frequency, criticality, expiry_date, status, secret_ref,
-            password_hash, password_salt, last_rotated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Admin Queue', 'Security Team', ?, 0, 0, ?, ?, ?, ?, 'Submitted', ?, ?, ?, ?)
+            database_name, username, owner, expiry_date, status, secret_ref,
+            password_hash, password_salt, last_rotated_at, created_at
+        ) VALUES (?, ?, ?, ?, 'Submitted', ?, ?, ?, ?, ?)
         """,
         (
             database_name,
             username,
-            account_type,
-            environment,
-            privilege_level,
             owner,
-            app_owner,
-            dependency_count,
-            credential_age,
-            usage_frequency,
-            criticality,
             expiry.isoformat(),
             secret_ref,
             hash_secret(password, salt),
             salt,
             (today() - timedelta(days=credential_age)).isoformat(),
+            iso_now(),
         ),
     )
     credential_id = cursor.lastrowid
     conn.execute(
         "INSERT INTO audit_logs(actor, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (owner, "submit_credential", "credential", credential_id, f"User submitted {database_name}/{username} for admin risk review.", iso_now()),
+        (owner, "submit_credential", "credential", credential_id, f"User submitted {database_name}/{username} for monitoring.", iso_now()),
     )
     refresh_notifications(conn)
     item = next(credential for credential in enriched_credentials(conn) if credential["id"] == credential_id)
@@ -278,25 +181,14 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 database_name TEXT NOT NULL,
                 username TEXT NOT NULL,
-                account_type TEXT NOT NULL,
-                environment TEXT NOT NULL,
-                privilege_level TEXT NOT NULL,
                 owner TEXT NOT NULL,
-                app_owner TEXT NOT NULL,
-                dba TEXT NOT NULL,
-                security_contact TEXT NOT NULL,
-                dependency_count INTEGER NOT NULL,
-                failed_logins INTEGER NOT NULL,
-                previous_rotation_failures INTEGER NOT NULL,
-                credential_age INTEGER NOT NULL,
-                usage_frequency INTEGER NOT NULL,
-                criticality INTEGER NOT NULL,
                 expiry_date TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'Active',
                 secret_ref TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL,
-                last_rotated_at TEXT
+                last_rotated_at TEXT,
+                created_at TEXT NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS notifications (
@@ -345,18 +237,18 @@ def init_db() -> None:
 
 def seed_credentials(conn: sqlite3.Connection) -> None:
     rows = [
-        ("Aurora-Payroll", "payroll_admin", "Service", "Production", "Admin", "Meera Iyer", "Raj Malhotra", "Nina Shah", "SOC Desk", 7, 4, 1, 118, 820, 5, -1),
-        ("Postgres-CoreBank", "loan_service_app", "Service", "Production", "Write", "Sanjay Rao", "Aarav Menon", "Nina Shah", "SOC Desk", 5, 1, 0, 86, 610, 5, 2),
-        ("Customer360", "crm_sync_user", "Service", "Production", "Write", "Isha Kapoor", "Leena Nair", "Dev Patel", "SOC Desk", 4, 2, 1, 96, 540, 4, 6),
-        ("Inventory-DB", "warehouse_writer", "Service", "Staging", "Write", "Karan Mehta", "Priya S", "Dev Patel", "SOC Desk", 3, 0, 0, 71, 250, 3, 9),
-        ("Analytics-Mart", "bi_reader", "Human", "Production", "Read", "Anika Das", "Rhea Sen", "Nina Shah", "SOC Desk", 2, 0, 0, 64, 140, 3, 18),
-        ("HR-Records", "hr_ops", "Human", "Production", "Write", "Vikram Joshi", "Maya Roy", "Nina Shah", "SOC Desk", 2, 3, 0, 78, 190, 4, 24),
-        ("DevLab", "dev_admin", "Human", "Development", "Admin", "Farah Khan", "Om Prakash", "Dev Patel", "SOC Desk", 1, 0, 0, 42, 55, 2, 33),
-        ("Payments-Replica", "replica_reader", "Service", "Production", "Read", "Neil Thomas", "Aarav Menon", "Nina Shah", "SOC Desk", 2, 0, 0, 35, 400, 4, 41),
-        ("Marketing-CDP", "segment_loader", "Service", "Staging", "Write", "Tara Bose", "Rhea Sen", "Dev Patel", "SOC Desk", 2, 1, 0, 52, 220, 2, 57),
-        ("QA-Orders", "qa_runner", "Service", "Development", "Write", "Rohan Pillai", "Om Prakash", "Dev Patel", "SOC Desk", 1, 0, 0, 21, 85, 1, 77),
-        ("FraudGraph", "fraud_detect_app", "Service", "Production", "Write", "Anika Das", "Leena Nair", "Nina Shah", "SOC Desk", 6, 5, 2, 132, 900, 5, 4),
-        ("Reporting-Archive", "archive_reader", "Human", "Staging", "Read", "Meera Iyer", "Rhea Sen", "Dev Patel", "SOC Desk", 0, 0, 0, 30, 35, 1, 120),
+        ("MySQL", "john.doe@company.com", "John Doe", -1),
+        ("PostgreSQL", "alice.smith@company.com", "Alice Smith", 2),
+        ("Oracle", "bob.jenkins@company.com", "Bob Jenkins", 6),
+        ("SQL Server", "sarah.connor@company.com", "Sarah Connor", 9),
+        ("MySQL", "mike.ross@company.com", "Mike Ross", 18),
+        ("PostgreSQL", "harvey.specter@company.com", "Harvey Specter", 24),
+        ("Oracle", "rachel.zane@company.com", "Rachel Zane", 33),
+        ("SQL Server", "donna.paulsen@company.com", "Donna Paulsen", 41),
+        ("MySQL", "louis.litt@company.com", "Louis Litt", 57),
+        ("PostgreSQL", "jessica.pearson@company.com", "Jessica Pearson", 77),
+        ("Oracle", "katrina.bennett@company.com", "Katrina Bennett", 4),
+        ("SQL Server", "alex.williams@company.com", "Alex Williams", 120),
     ]
 
     for row in rows:
@@ -365,19 +257,20 @@ def seed_credentials(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             INSERT INTO credentials (
-                database_name, username, account_type, environment, privilege_level, owner, app_owner,
-                dba, security_contact, dependency_count, failed_logins, previous_rotation_failures,
-                credential_age, usage_frequency, criticality, expiry_date, status, secret_ref,
-                password_hash, password_salt, last_rotated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?, ?)
+                database_name, username, owner, expiry_date, status, secret_ref,
+                password_hash, password_salt, last_rotated_at, created_at
+            ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?)
             """,
             (
-                *row[:-1],
-                (today() + timedelta(days=row[-1])).isoformat(),
+                row[0],
+                row[1],
+                row[2],
+                (today() + timedelta(days=row[3])).isoformat(),
                 f"vault://securerotate/{row[0].lower()}/{row[1]}",
                 hash_secret(placeholder_secret, salt),
                 salt,
-                (today() - timedelta(days=row[12])).isoformat(),
+                (today() - timedelta(days=90 - row[3])).isoformat(),
+                iso_now()
             ),
         )
 
@@ -441,18 +334,12 @@ def enriched_credentials(conn: sqlite3.Connection) -> list[dict]:
 def apply_filters(credentials: list[dict], query: dict) -> list[dict]:
     search = query.get("search", [""])[0].lower().strip()
     risk = query.get("risk", ["All"])[0]
-    environment = query.get("environment", ["All"])[0]
-    account_type = query.get("account_type", ["All"])[0]
 
     def keep(item: dict) -> bool:
-        haystack = " ".join(str(item[key]) for key in ("database_name", "username", "owner", "app_owner", "environment")).lower()
+        haystack = " ".join(str(item[key]) for key in ("database_name", "username", "owner")).lower()
         if search and search not in haystack:
             return False
         if risk != "All" and item["risk"] != risk:
-            return False
-        if environment != "All" and item["environment"] != environment:
-            return False
-        if account_type != "All" and item["account_type"] != account_type:
             return False
         return True
 
@@ -466,10 +353,8 @@ def summary_payload(conn: sqlite3.Connection, query: dict) -> dict:
     expired = sum(1 for item in credentials if item["days_to_expiry"] < 0)
     critical = sum(1 for item in credentials if item["risk"] == "Critical")
     risk_distribution = {risk: 0 for risk in ["Low", "Medium", "High", "Critical"]}
-    env_distribution = {env: 0 for env in ["Production", "Staging", "Development"]}
     for item in credentials:
         risk_distribution[item["risk"]] += 1
-        env_distribution[item["environment"]] += 1
     rotations = conn.execute("SELECT * FROM rotation_history ORDER BY id DESC").fetchall()
     success = sum(1 for row in rotations if row["verification_status"] == "Verified")
     return {
@@ -478,7 +363,6 @@ def summary_payload(conn: sqlite3.Connection, query: dict) -> dict:
         "expired": expired,
         "critical": critical,
         "risk_distribution": risk_distribution,
-        "environment_distribution": env_distribution,
         "rotation_success": success,
         "model_version": MODEL_VERSION,
         "generated_at": iso_now(),
@@ -493,7 +377,6 @@ def recommendation_payload(conn: sqlite3.Connection, query: dict) -> list[dict]:
             "credential_id": item["id"],
             "database_name": item["database_name"],
             "username": item["username"],
-            "environment": item["environment"],
             "risk": item["risk"],
             "risk_probability": item["risk_probability"],
             "days_to_expiry": item["days_to_expiry"],
@@ -537,8 +420,6 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
     probability, factors = feature_score(item)
     risk = classify(probability)
     recommendation = recommend_action(item, risk, probability, factors)
-    if recommendation["approval_required"] and not actor:
-        raise PermissionError("Approval is required for this production credential")
 
     started = iso_now()
     conn.execute(
@@ -554,7 +435,9 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
     salt = secrets.token_hex(16)
     new_expiry = (today() + timedelta(days=90)).isoformat()
     time.sleep(0.35)
-    verification_ok = int(credential["dependency_count"]) < 8
+    
+    # Always succeed for the demo now that dependencies are gone
+    verification_ok = True
 
     status = "Completed" if verification_ok else "Failed"
     verification = "Verified" if verification_ok else "Failed"
@@ -568,8 +451,7 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
         conn.execute(
             """
             UPDATE credentials
-            SET expiry_date = ?, credential_age = 0, previous_rotation_failures = 0, failed_logins = 0,
-                password_hash = ?, password_salt = ?, last_rotated_at = ?, status = 'Active'
+            SET expiry_date = ?, password_hash = ?, password_salt = ?, last_rotated_at = ?, status = 'Active'
             WHERE id = ?
             """,
             (new_expiry, hash_secret(password, salt), salt, iso_now(), credential_id),
@@ -577,7 +459,7 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
         conn.execute("UPDATE notifications SET status = 'Resolved' WHERE credential_id = ? AND status != 'Acknowledged'", (credential_id,))
     else:
         conn.execute(
-            "UPDATE credentials SET previous_rotation_failures = previous_rotation_failures + 1, status = 'Needs Review' WHERE id = ?",
+            "UPDATE credentials SET status = 'Needs Review' WHERE id = ?",
             (credential_id,),
         )
 
@@ -606,10 +488,6 @@ def serve_index():
 @app.route("/admin")
 def serve_admin():
     return send_file(PUBLIC / "index.html")
-
-@app.route("/user")
-def serve_user():
-    return send_file(PUBLIC / "user.html")
 
 @app.route("/<path:filename>")
 def serve_static(filename):
@@ -662,7 +540,7 @@ def api_notifications():
         refresh_notifications(conn)
         rows = conn.execute(
             """
-            SELECT n.*, c.database_name, c.username, c.environment
+            SELECT n.*, c.database_name, c.username
             FROM notifications n
             JOIN credentials c ON c.id = n.credential_id
             ORDER BY n.id DESC

@@ -9,9 +9,7 @@ const state = {
   selectedId: null,
   filters: {
     search: "",
-    environment: "All",
     risk: "All",
-    account_type: "All",
   },
 };
 
@@ -20,9 +18,6 @@ const riskColors = {
   Medium: "#b45309",
   High: "#ea580c",
   Critical: "#b91c1c",
-  Production: "#0e7490",
-  Staging: "#6d28d9",
-  Development: "#15803d",
   Expired: "#b91c1c",
   "0-7 days": "#ea580c",
   "8-15 days": "#b45309",
@@ -90,10 +85,6 @@ function selectedCredential() {
 
 function riskPill(risk) {
   return `<span class="pill risk-${escapeHtml(risk)}">${escapeHtml(risk)}</span>`;
-}
-
-function environmentPill(environment) {
-  return `<span class="pill env">${escapeHtml(environment)}</span>`;
 }
 
 function render() {
@@ -175,13 +166,13 @@ function expiryText(days) {
 
 function renderCredentialRows() {
   $("#credentialRows").innerHTML = state.credentials
-    .map((item) => credentialTableRow(item, ["name", "environment", "risk", "expiry", "action"]))
+    .map((item) => credentialTableRow(item, ["name", "risk", "expiry", "action"]))
     .join("");
 }
 
 function renderExplorerRows() {
   $("#explorerRows").innerHTML = state.credentials
-    .map((item) => credentialTableRow(item, ["database", "username", "owner", "privilege", "dependencies", "risk", "action"]))
+    .map((item) => credentialTableRow(item, ["database", "username", "owner", "risk", "action"]))
     .join("");
 }
 
@@ -191,15 +182,12 @@ function credentialTableRow(item, columns) {
       <td>
         <div class="credential-name">
           <strong>${escapeHtml(item.database_name)}</strong>
-          <span class="muted">${escapeHtml(item.username)} - ${escapeHtml(item.account_type)}</span>
+          <span class="muted">${escapeHtml(item.username)}</span>
         </div>
       </td>`,
     database: `<td>${escapeHtml(item.database_name)}</td>`,
     username: `<td>${escapeHtml(item.username)}</td>`,
     owner: `<td>${escapeHtml(item.owner)}</td>`,
-    privilege: `<td>${escapeHtml(item.privilege_level)}</td>`,
-    dependencies: `<td>${escapeHtml(item.dependency_count)}</td>`,
-    environment: `<td>${environmentPill(item.environment)}</td>`,
     risk: `<td>${riskPill(item.risk)} <span class="muted">${Math.round(item.risk_probability * 100)}%</span></td>`,
     expiry: `<td class="${item.days_to_expiry < 0 ? "danger-text" : ""}">${escapeHtml(expiryText(item.days_to_expiry))}</td>`,
     action: `<td>${escapeHtml(item.recommendation.action)}</td>`,
@@ -221,10 +209,7 @@ function renderDetailPanel() {
     <div class="detail-grid">
       <div class="detail-stat"><span>Risk</span><strong>${riskPill(item.risk)} ${Math.round(item.risk_probability * 100)}%</strong></div>
       <div class="detail-stat"><span>Expiry</span><strong>${escapeHtml(expiryText(item.days_to_expiry))}</strong></div>
-      <div class="detail-stat"><span>Privilege</span><strong>${escapeHtml(item.privilege_level)}</strong></div>
-      <div class="detail-stat"><span>Dependencies</span><strong>${escapeHtml(item.dependency_count)} apps/services</strong></div>
       <div class="detail-stat"><span>Owner</span><strong>${escapeHtml(item.owner)}</strong></div>
-      <div class="detail-stat"><span>DBA</span><strong>${escapeHtml(item.dba)}</strong></div>
     </div>
     <div class="timeline" title="Credential age vs expiry cycle"><span style="width:${timelineWidth}%"></span></div>
     <p class="muted">Expiry timeline: ${escapeHtml(item.credential_age)} days old, expires ${escapeHtml(item.expiry_date)}.</p>
@@ -271,7 +256,7 @@ function renderRotationTarget() {
   $("#rotationTarget").innerHTML = `
     <p class="eyebrow">Selected account</p>
     <h2>${escapeHtml(item.database_name)}</h2>
-    <p class="muted">${escapeHtml(item.username)} - ${escapeHtml(item.environment)} - ${escapeHtml(item.account_type)}</p>
+    <p class="muted">${escapeHtml(item.username)}</p>
     <div class="detail-grid">
       <div class="detail-stat"><span>Risk</span><strong>${escapeHtml(item.risk)} ${Math.round(item.risk_probability * 100)}%</strong></div>
       <div class="detail-stat"><span>Expiry</span><strong>${escapeHtml(expiryText(item.days_to_expiry))}</strong></div>
@@ -381,16 +366,8 @@ function bindEvents() {
     state.filters.search = event.target.value;
     debounceRefresh();
   });
-  $("#envFilter").addEventListener("change", (event) => {
-    state.filters.environment = event.target.value;
-    refreshAll();
-  });
   $("#riskFilter").addEventListener("change", (event) => {
     state.filters.risk = event.target.value;
-    refreshAll();
-  });
-  $("#typeFilter").addEventListener("change", (event) => {
-    state.filters.account_type = event.target.value;
     refreshAll();
   });
   document.body.addEventListener("click", async (event) => {
