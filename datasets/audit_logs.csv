@@ -1,0 +1,121 @@
+actor,action,entity,entity_id,details,created_at
+admin,magic_link_generated,credential,46,Generated a magic reset link - Oracle (Pooja Mishra),2026-08-03T08:53:15Z
+cron_worker,otp_sent,credential,45,OTP verification code sent via email - Oracle (Karthik Nair),2026-07-04T08:53:15Z
+Meera Joshi,otp_sent,credential,14,OTP verification code sent via email - MongoDB (Meera Joshi),2026-04-11T08:53:15Z
+admin,credential_created,credential,21,Created new database credential - Redis (Suresh Pandey),2026-08-04T08:53:15Z
+system,credential_created,credential,43,Created new database credential - CockroachDB (Arjun Mehta),2026-03-27T08:53:15Z
+system,password_rotated,credential,20,Password was successfully rotated - PostgreSQL (Rahul Gupta),2026-06-16T08:53:15Z
+system,login_attempt,credential,5,Admin login attempt - PostgreSQL (Amit Tiwari),2026-06-14T08:53:15Z
+cron_worker,credential_created,credential,32,Created new database credential - CockroachDB (Suresh Pandey),2026-08-15T08:53:15Z
+admin,otp_verified,credential,48,OTP verified successfully - CockroachDB (Manish Dubey),2026-07-19T08:53:15Z
+system,password_rotated,credential,47,Password was successfully rotated - Redis (Priya Sharma),2026-07-18T08:53:15Z
+Rohit Kumar,login_attempt,credential,44,Admin login attempt - Redis (Rohit Kumar),2026-07-11T08:53:15Z
+system,login_attempt,credential,26,Admin login attempt - Oracle (Neha Agarwal),2026-07-10T08:53:15Z
+system,otp_sent,credential,13,OTP verification code sent via email - PostgreSQL (Lakshmi Menon),2026-06-03T08:53:15Z
+system,reminder_sent,credential,9,Sent expiry reminder email - Oracle (Pooja Mishra),2026-06-28T08:53:15Z
+system,otp_verified,credential,38,OTP verified successfully - MongoDB (Rajesh Khanna),2026-02-18T08:53:15Z
+Rahul Gupta,otp_sent,credential,20,OTP verification code sent via email - PostgreSQL (Rahul Gupta),2026-03-22T08:53:15Z
+cron_worker,login_attempt,credential,17,Admin login attempt - MariaDB (Vikram Singh),2026-04-21T08:53:15Z
+system,otp_verified,credential,3,OTP verified successfully - SQL Server (Meera Joshi),2026-08-15T08:53:15Z
+Meera Joshi,login_attempt,credential,7,Admin login attempt - SQL Server (Meera Joshi),2026-08-07T08:53:15Z
+admin,reminder_sent,credential,4,Sent expiry reminder email - CockroachDB (Deepika Iyer),2026-04-26T08:53:15Z
+admin,credential_created,credential,41,Created new database credential - MySQL (Amit Tiwari),2026-07-07T08:53:15Z
+Divya Saxena,password_rotated,credential,25,Password was successfully rotated - PostgreSQL (Divya Saxena),2026-06-20T08:53:15Z
+admin,otp_verified,credential,6,OTP verified successfully - PostgreSQL (Priya Sharma),2026-04-17T08:53:15Z
+Rahul Gupta,otp_sent,credential,28,OTP verification code sent via email - PostgreSQL (Rahul Gupta),2026-04-29T08:53:15Z
+cron_worker,credential_created,credential,11,Created new database credential - Oracle (Priya Sharma),2026-04-13T08:53:15Z
+system,password_rotated,credential,12,Password was successfully rotated - MariaDB (Rajesh Khanna),2026-02-23T08:53:15Z
+Suresh Pandey,credential_created,credential,22,Created new database credential - MySQL (Suresh Pandey),2026-03-21T08:53:15Z
+Rahul Gupta,reminder_sent,credential,28,Sent expiry reminder email - PostgreSQL (Rahul Gupta),2026-03-07T08:53:15Z
+admin,password_rotated,credential,15,Password was successfully rotated - SQL Server (Sanjay Verma),2026-04-05T08:53:15Z
+admin,reminder_sent,credential,50,Sent expiry reminder email - PostgreSQL (Arjun Mehta),2026-06-25T08:53:15Z
+system,reminder_sent,credential,33,Sent expiry reminder email - Redis (Manish Dubey),2026-03-31T08:53:15Z
+system,magic_link_generated,credential,16,Generated a magic reset link - MariaDB (Rajesh Khanna),2026-04-03T08:53:15Z
+admin,otp_verified,credential,27,OTP verified successfully - CockroachDB (Sneha Patel),2026-03-27T08:53:15Z
+admin,password_rotated,credential,37,Password was successfully rotated - Oracle (Vikram Singh),2026-06-25T08:53:15Z
+system,reminder_sent,credential,33,Sent expiry reminder email - Redis (Manish Dubey),2026-04-12T08:53:15Z
+admin,reminder_sent,credential,45,Sent expiry reminder email - Oracle (Karthik Nair),2026-02-27T08:53:15Z
+cron_worker,alert_triggered,credential,48,Security alert triggered for expired credential - CockroachDB (Manish Dubey),2026-03-07T08:53:15Z
+system,reminder_sent,credential,29,Sent expiry reminder email - CockroachDB (Vikram Singh),2026-05-10T08:53:15Z
+admin,alert_triggered,credential,8,Security alert triggered for expired credential - MySQL (Rohit Kumar),2026-05-14T08:53:15Z
+Ananya Reddy,reminder_sent,credential,39,Sent expiry reminder email - CockroachDB (Ananya Reddy),2026-05-30T08:53:15Z
+system,reminder_sent,credential,24,Sent expiry reminder email - SQL Server (Vikram Singh),2026-02-23T08:53:15Z
+Pooja Mishra,login_attempt,credential,9,Admin login attempt - Oracle (Pooja Mishra),2026-04-20T08:53:15Z
+system,password_rotated,credential,33,Password was successfully rotated - Redis (Manish Dubey),2026-06-17T08:53:15Z
+system,reminder_sent,credential,46,Sent expiry reminder email - Oracle (Pooja Mishra),2026-06-04T08:53:15Z
+system,credential_created,credential,8,Created new database credential - MySQL (Rohit Kumar),2026-05-25T08:53:15Z
+system,otp_verified,credential,15,OTP verified successfully - SQL Server (Sanjay Verma),2026-08-07T08:53:15Z
+cron_worker,otp_sent,credential,40,OTP verification code sent via email - PostgreSQL (Karthik Nair),2026-07-08T08:53:15Z
+cron_worker,credential_created,credential,39,Created new database credential - CockroachDB (Ananya Reddy),2026-03-14T08:53:15Z
+Rohit Kumar,credential_created,credential,44,Created new database credential - Redis (Rohit Kumar),2026-07-25T08:53:15Z
+admin,login_attempt,credential,33,Admin login attempt - Redis (Manish Dubey),2026-07-14T08:53:15Z
+Rajesh Khanna,alert_triggered,credential,18,Security alert triggered for expired credential - Oracle (Rajesh Khanna),2026-05-11T08:53:15Z
+cron_worker,otp_sent,credential,23,OTP verification code sent via email - Redis (Sanjay Verma),2026-05-13T08:53:15Z
+Rahul Gupta,magic_link_generated,credential,28,Generated a magic reset link - PostgreSQL (Rahul Gupta),2026-05-11T08:53:15Z
+cron_worker,magic_link_generated,credential,28,Generated a magic reset link - PostgreSQL (Rahul Gupta),2026-03-15T08:53:15Z
+admin,otp_verified,credential,5,OTP verified successfully - PostgreSQL (Amit Tiwari),2026-03-17T08:53:15Z
+cron_worker,alert_triggered,credential,24,Security alert triggered for expired credential - SQL Server (Vikram Singh),2026-08-02T08:53:15Z
+admin,reminder_sent,credential,41,Sent expiry reminder email - MySQL (Amit Tiwari),2026-04-14T08:53:15Z
+system,credential_created,credential,33,Created new database credential - Redis (Manish Dubey),2026-04-28T08:53:15Z
+system,reminder_sent,credential,5,Sent expiry reminder email - PostgreSQL (Amit Tiwari),2026-07-12T08:53:15Z
+admin,otp_verified,credential,50,OTP verified successfully - PostgreSQL (Arjun Mehta),2026-04-27T08:53:15Z
+system,password_rotated,credential,15,Password was successfully rotated - SQL Server (Sanjay Verma),2026-05-16T08:53:15Z
+Rahul Gupta,login_attempt,credential,20,Admin login attempt - PostgreSQL (Rahul Gupta),2026-05-29T08:53:15Z
+cron_worker,login_attempt,credential,39,Admin login attempt - CockroachDB (Ananya Reddy),2026-07-20T08:53:15Z
+admin,credential_created,credential,30,Created new database credential - PostgreSQL (Suresh Pandey),2026-07-22T08:53:15Z
+system,reminder_sent,credential,45,Sent expiry reminder email - Oracle (Karthik Nair),2026-03-31T08:53:15Z
+admin,password_rotated,credential,22,Password was successfully rotated - MySQL (Suresh Pandey),2026-06-14T08:53:15Z
+Divya Saxena,credential_created,credential,2,Created new database credential - MariaDB (Divya Saxena),2026-06-03T08:53:15Z
+admin,otp_verified,credential,23,OTP verified successfully - Redis (Sanjay Verma),2026-03-16T08:53:15Z
+Priya Sharma,magic_link_generated,credential,6,Generated a magic reset link - PostgreSQL (Priya Sharma),2026-03-06T08:53:15Z
+Meera Joshi,reminder_sent,credential,14,Sent expiry reminder email - MongoDB (Meera Joshi),2026-03-29T08:53:15Z
+Amit Tiwari,login_attempt,credential,42,Admin login attempt - MongoDB (Amit Tiwari),2026-03-25T08:53:15Z
+admin,magic_link_generated,credential,33,Generated a magic reset link - Redis (Manish Dubey),2026-02-26T08:53:15Z
+Vikram Singh,reminder_sent,credential,37,Sent expiry reminder email - Oracle (Vikram Singh),2026-04-20T08:53:15Z
+system,credential_created,credential,45,Created new database credential - Oracle (Karthik Nair),2026-06-20T08:53:15Z
+cron_worker,magic_link_generated,credential,37,Generated a magic reset link - Oracle (Vikram Singh),2026-05-27T08:53:15Z
+system,otp_verified,credential,41,OTP verified successfully - MySQL (Amit Tiwari),2026-04-05T08:53:15Z
+admin,magic_link_generated,credential,44,Generated a magic reset link - Redis (Rohit Kumar),2026-08-09T08:53:15Z
+admin,magic_link_generated,credential,14,Generated a magic reset link - MongoDB (Meera Joshi),2026-03-28T08:53:15Z
+Kavita Rao,credential_created,credential,31,Created new database credential - MariaDB (Kavita Rao),2026-06-27T08:53:15Z
+cron_worker,password_rotated,credential,39,Password was successfully rotated - CockroachDB (Ananya Reddy),2026-02-22T08:53:15Z
+cron_worker,magic_link_generated,credential,50,Generated a magic reset link - PostgreSQL (Arjun Mehta),2026-04-17T08:53:15Z
+system,alert_triggered,credential,44,Security alert triggered for expired credential - Redis (Rohit Kumar),2026-07-13T08:53:15Z
+Lakshmi Menon,credential_created,credential,13,Created new database credential - PostgreSQL (Lakshmi Menon),2026-08-06T08:53:15Z
+admin,login_attempt,credential,24,Admin login attempt - SQL Server (Vikram Singh),2026-05-16T08:53:15Z
+Priya Sharma,otp_verified,credential,6,OTP verified successfully - PostgreSQL (Priya Sharma),2026-04-22T08:53:15Z
+system,reminder_sent,credential,29,Sent expiry reminder email - CockroachDB (Vikram Singh),2026-07-27T08:53:15Z
+Vikram Singh,reminder_sent,credential,17,Sent expiry reminder email - MariaDB (Vikram Singh),2026-06-03T08:53:15Z
+Meera Joshi,otp_sent,credential,7,OTP verification code sent via email - SQL Server (Meera Joshi),2026-05-22T08:53:15Z
+cron_worker,password_rotated,credential,36,Password was successfully rotated - MongoDB (Lakshmi Menon),2026-05-11T08:53:15Z
+system,reminder_sent,credential,44,Sent expiry reminder email - Redis (Rohit Kumar),2026-03-30T08:53:15Z
+system,otp_sent,credential,43,OTP verification code sent via email - CockroachDB (Arjun Mehta),2026-03-04T08:53:15Z
+cron_worker,login_attempt,credential,26,Admin login attempt - Oracle (Neha Agarwal),2026-03-11T08:53:15Z
+Meera Joshi,alert_triggered,credential,7,Security alert triggered for expired credential - SQL Server (Meera Joshi),2026-08-09T08:53:15Z
+admin,credential_created,credential,49,Created new database credential - PostgreSQL (Deepika Iyer),2026-02-22T08:53:15Z
+admin,otp_verified,credential,20,OTP verified successfully - PostgreSQL (Rahul Gupta),2026-05-13T08:53:15Z
+cron_worker,login_attempt,credential,25,Admin login attempt - PostgreSQL (Divya Saxena),2026-05-26T08:53:15Z
+system,credential_created,credential,39,Created new database credential - CockroachDB (Ananya Reddy),2026-05-14T08:53:15Z
+cron_worker,otp_verified,credential,2,OTP verified successfully - MariaDB (Divya Saxena),2026-04-25T08:53:15Z
+cron_worker,password_rotated,credential,17,Password was successfully rotated - MariaDB (Vikram Singh),2026-05-08T08:53:15Z
+cron_worker,alert_triggered,credential,30,Security alert triggered for expired credential - PostgreSQL (Suresh Pandey),2026-07-07T08:53:15Z
+system,password_rotated,credential,9,Password was successfully rotated - Oracle (Pooja Mishra),2026-04-10T08:53:15Z
+Suresh Pandey,magic_link_generated,credential,32,Generated a magic reset link - CockroachDB (Suresh Pandey),2026-04-21T08:53:15Z
+system,otp_sent,credential,35,OTP verification code sent via email - Oracle (Suresh Pandey),2026-03-16T08:53:15Z
+admin,otp_sent,credential,13,OTP verification code sent via email - PostgreSQL (Lakshmi Menon),2026-04-27T08:53:15Z
+admin,login_attempt,credential,5,Admin login attempt - PostgreSQL (Amit Tiwari),2026-06-16T08:53:15Z
+admin,alert_triggered,credential,49,Security alert triggered for expired credential - PostgreSQL (Deepika Iyer),2026-03-25T08:53:15Z
+cron_worker,password_rotated,credential,37,Password was successfully rotated - Oracle (Vikram Singh),2026-05-23T08:53:15Z
+system,otp_sent,credential,35,OTP verification code sent via email - Oracle (Suresh Pandey),2026-07-14T08:53:15Z
+system,alert_triggered,credential,19,Security alert triggered for expired credential - Redis (Pooja Mishra),2026-05-05T08:53:15Z
+Priya Sharma,alert_triggered,credential,11,Security alert triggered for expired credential - Oracle (Priya Sharma),2026-03-30T08:53:15Z
+Deepika Iyer,otp_verified,credential,49,OTP verified successfully - PostgreSQL (Deepika Iyer),2026-08-08T08:53:15Z
+system,login_attempt,credential,21,Admin login attempt - Redis (Suresh Pandey),2026-03-19T08:53:15Z
+cron_worker,otp_sent,credential,22,OTP verification code sent via email - MySQL (Suresh Pandey),2026-02-16T08:53:15Z
+system,otp_sent,credential,24,OTP verification code sent via email - SQL Server (Vikram Singh),2026-06-24T08:53:15Z
+cron_worker,reminder_sent,credential,3,Sent expiry reminder email - SQL Server (Meera Joshi),2026-03-06T08:53:15Z
+cron_worker,alert_triggered,credential,31,Security alert triggered for expired credential - MariaDB (Kavita Rao),2026-07-06T08:53:15Z
+cron_worker,otp_verified,credential,5,OTP verified successfully - PostgreSQL (Amit Tiwari),2026-03-17T08:53:15Z
+system,otp_sent,credential,2,OTP verification code sent via email - MariaDB (Divya Saxena),2026-04-13T08:53:15Z
+Vikram Singh,login_attempt,credential,24,Admin login attempt - SQL Server (Vikram Singh),2026-07-12T08:53:15Z
+admin,login_attempt,credential,42,Admin login attempt - MongoDB (Amit Tiwari),2026-07-23T08:53:15Z
