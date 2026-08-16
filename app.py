@@ -815,7 +815,7 @@ def api_analytics_plots():
             role_counts = credentials_df[col].value_counts().reset_index()
             role_counts.columns = [col, "count"]
             fig1 = px.bar(role_counts, x="count", y=col, orientation='h', color=col)
-            fig1.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+            fig1.update_layout(margin=dict(l=20, r=20, t=20, b=20), yaxis=dict(categoryorder='total ascending'))
             plots["credentials_by_role"] = fig1.to_json()
         except Exception:
             pass
@@ -826,6 +826,7 @@ def api_analytics_plots():
             department_counts = credentials_df[col].value_counts().reset_index()
             department_counts.columns = [col, "credential_count"]
             fig2 = px.pie(department_counts, names=col, values="credential_count")
+            fig2.update_traces(direction='clockwise')
             fig2.update_layout(margin=dict(l=20, r=20, t=20, b=20))
             plots["credentials_by_department"] = fig2.to_json()
         except Exception:
@@ -849,7 +850,7 @@ def api_analytics_plots():
                 actions_count = audit_df["action"].value_counts().reset_index()
                 actions_count.columns = ["Action", "Count"]
                 fig4 = px.bar(actions_count, x="Action", y="Count")
-                fig4.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+                fig4.update_layout(margin=dict(l=20, r=20, t=20, b=20), xaxis=dict(categoryorder='total descending'))
                 plots["action_distribution"] = fig4.to_json()
         except Exception:
             pass
@@ -873,7 +874,7 @@ def api_analytics_plots():
                 status_counts = rotation_df["status"].value_counts().reset_index()
                 status_counts.columns = ["status", "count"]
                 fig6 = px.bar(status_counts, x="status", y="count")
-                fig6.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+                fig6.update_layout(margin=dict(l=20, r=20, t=20, b=20), xaxis=dict(categoryorder='total descending'))
                 plots["rotation_status"] = fig6.to_json()
         except Exception:
             pass
@@ -884,6 +885,7 @@ def api_analytics_plots():
                 verification_status_counts = rotation_df["verification_status"].value_counts().sort_index().reset_index()
                 verification_status_counts.columns = ["verification_status", "counts"]
                 fig7 = px.pie(verification_status_counts, names="verification_status", values="counts")
+                fig7.update_traces(direction='clockwise')
                 fig7.update_layout(margin=dict(l=20, r=20, t=20, b=20))
                 plots["verification_status"] = fig7.to_json()
         except Exception:
