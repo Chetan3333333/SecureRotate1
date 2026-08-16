@@ -814,6 +814,7 @@ def api_analytics_plots():
             col = "role" if "role" in credentials_df.columns else "owner"
             role_counts = credentials_df[col].value_counts().reset_index()
             role_counts.columns = [col, "count"]
+            role_counts = role_counts.sort_values(by="count", ascending=False)
             fig1 = px.bar(role_counts, x="count", y=col, orientation='h', color=col)
             fig1.update_layout(margin=dict(l=20, r=20, t=20, b=20), yaxis=dict(categoryorder='total ascending'))
             plots["credentials_by_role"] = fig1.to_json()
@@ -825,6 +826,7 @@ def api_analytics_plots():
             col = "department" if "department" in credentials_df.columns else "database_name"
             department_counts = credentials_df[col].value_counts().reset_index()
             department_counts.columns = [col, "credential_count"]
+            department_counts = department_counts.sort_values(by="credential_count", ascending=False)
             fig2 = px.pie(department_counts, names=col, values="credential_count")
             fig2.update_traces(direction='clockwise')
             fig2.update_layout(margin=dict(l=20, r=20, t=20, b=20))
@@ -836,8 +838,9 @@ def api_analytics_plots():
         try:
             if "expiry_date" in credentials_df.columns:
                 credentials_df["expiry_date"] = pd.to_datetime(credentials_df["expiry_date"], format='ISO8601', utc=True, errors='coerce')
-                expiry_counts = credentials_df["expiry_date"].dropna().dt.date.value_counts().sort_index().reset_index()
+                expiry_counts = credentials_df["expiry_date"].dropna().dt.date.value_counts().reset_index()
                 expiry_counts.columns = ["expiry_date", "credential_count"]
+                expiry_counts = expiry_counts.sort_values(by="expiry_date", ascending=True)
                 fig3 = px.line(expiry_counts, x="expiry_date", y="credential_count", markers=True)
                 fig3.update_layout(margin=dict(l=20, r=20, t=20, b=20))
                 plots["expiry_timeline"] = fig3.to_json()
@@ -849,6 +852,7 @@ def api_analytics_plots():
             if "action" in audit_df.columns:
                 actions_count = audit_df["action"].value_counts().reset_index()
                 actions_count.columns = ["Action", "Count"]
+                actions_count = actions_count.sort_values(by="Count", ascending=False)
                 fig4 = px.bar(actions_count, x="Action", y="Count")
                 fig4.update_layout(margin=dict(l=20, r=20, t=20, b=20), xaxis=dict(categoryorder='total descending'))
                 plots["action_distribution"] = fig4.to_json()
@@ -860,8 +864,9 @@ def api_analytics_plots():
             if "created_at" in audit_df.columns:
                 audit_df["created_at"] = pd.to_datetime(audit_df["created_at"], format='ISO8601', utc=True, errors='coerce')
                 audit_df["date"] = audit_df["created_at"].dt.date
-                daily_activity = audit_df["date"].dropna().value_counts().sort_index().reset_index()
+                daily_activity = audit_df["date"].dropna().value_counts().reset_index()
                 daily_activity.columns = ["date", "event_count"]
+                daily_activity = daily_activity.sort_values(by="date", ascending=True)
                 fig5 = px.line(daily_activity, x="date", y="event_count", markers=True)
                 fig5.update_layout(margin=dict(l=20, r=20, t=20, b=20))
                 plots["audit_activity"] = fig5.to_json()
@@ -873,6 +878,7 @@ def api_analytics_plots():
             if "status" in rotation_df.columns:
                 status_counts = rotation_df["status"].value_counts().reset_index()
                 status_counts.columns = ["status", "count"]
+                status_counts = status_counts.sort_values(by="count", ascending=False)
                 fig6 = px.bar(status_counts, x="status", y="count")
                 fig6.update_layout(margin=dict(l=20, r=20, t=20, b=20), xaxis=dict(categoryorder='total descending'))
                 plots["rotation_status"] = fig6.to_json()
@@ -882,8 +888,9 @@ def api_analytics_plots():
         # 7. Verification status distribution
         try:
             if "verification_status" in rotation_df.columns:
-                verification_status_counts = rotation_df["verification_status"].value_counts().sort_index().reset_index()
+                verification_status_counts = rotation_df["verification_status"].value_counts().reset_index()
                 verification_status_counts.columns = ["verification_status", "counts"]
+                verification_status_counts = verification_status_counts.sort_values(by="counts", ascending=False)
                 fig7 = px.pie(verification_status_counts, names="verification_status", values="counts")
                 fig7.update_traces(direction='clockwise')
                 fig7.update_layout(margin=dict(l=20, r=20, t=20, b=20))
@@ -894,8 +901,10 @@ def api_analytics_plots():
         # 8. Rotation Status vs Verification Status
         try:
             if "status" in rotation_df.columns and "verification_status" in rotation_df.columns:
-                fig8 = px.bar(rotation_df, x="status", color="verification_status", barmode="group")
-                fig8.update_layout(margin=dict(l=20, r=20, t=20, b=20))
+                grouped = rotation_df.groupby(["status", "verification_status"]).size().reset_index(name="count")
+                grouped = grouped.sort_values(by="count", ascending=False)
+                fig8 = px.bar(grouped, x="status", y="count", color="verification_status", barmode="group")
+                fig8.update_layout(margin=dict(l=20, r=20, t=20, b=20), xaxis=dict(categoryorder='total descending'))
                 plots["rotation_vs_verification"] = fig8.to_json()
         except Exception:
             pass

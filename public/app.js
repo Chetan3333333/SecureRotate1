@@ -56,29 +56,36 @@ async function api(path, options = {}) {
   return data;
 }
 
+let isRefreshing = false;
 async function refreshAll() {
-  const qs = queryString();
-  const [summary, credentials, recommendations, notifications, audit, analytics, analyticsPlots] = await Promise.all([
-    api(`/api/summary?${qs}`),
-    api(`/api/credentials?${qs}`),
-    api(`/api/recommendations?${qs}`),
-    api("/api/notifications"),
-    api("/api/audit"),
-    api(`/api/analytics?${qs}`),
-    api(`/api/analytics/plots`).catch(() => null),
-  ]);
-  state.summary = summary;
-  state.credentials = credentials;
-  state.recommendations = recommendations;
-  state.notifications = notifications;
-  state.audit = audit;
-  state.analytics = analytics;
-  state.analyticsPlots = analyticsPlots;
-  if (!state.selectedId && credentials.length) state.selectedId = credentials[0].id;
-  if (!credentials.some((item) => item.id === state.selectedId) && credentials.length) {
-    state.selectedId = credentials[0].id;
+  if (isRefreshing) return;
+  isRefreshing = true;
+  try {
+    const qs = queryString();
+    const [summary, credentials, recommendations, notifications, audit, analytics, analyticsPlotsRaw] = await Promise.all([
+      api(`/api/summary?${qs}`),
+      api(`/api/credentials?${qs}`),
+      api(`/api/recommendations?${qs}`),
+      api("/api/notifications"),
+      api("/api/audit"),
+      api(`/api/analytics?${qs}`),
+      api(`/api/analytics/plots`).catch(() => null),
+    ]);
+    state.summary = summary;
+    state.credentials = credentials;
+    state.recommendations = recommendations;
+    state.notifications = notifications;
+    state.audit = audit;
+    state.analytics = analytics;
+    state.analyticsPlots = typeof analyticsPlotsRaw === 'string' ? JSON.parse(analyticsPlotsRaw) : analyticsPlotsRaw;
+    if (!state.selectedId && credentials.length) state.selectedId = credentials[0].id;
+    if (!credentials.some((item) => item.id === state.selectedId) && credentials.length) {
+      state.selectedId = credentials[0].id;
+    }
+    render();
+  } finally {
+    isRefreshing = false;
   }
-  render();
 }
 
 function selectedCredential() {
@@ -362,28 +369,28 @@ function renderAnalytics() {
     const config = { responsive: true, displayModeBar: false };
 
     if (state.analyticsPlots.credentials_by_role) {
-      Plotly.newPlot("plot-credentials-by-role", state.analyticsPlots.credentials_by_role.data, state.analyticsPlots.credentials_by_role.layout, config);
+      Plotly.react("plot-credentials-by-role", state.analyticsPlots.credentials_by_role.data, state.analyticsPlots.credentials_by_role.layout, config);
     }
     if (state.analyticsPlots.credentials_by_department) {
-      Plotly.newPlot("plot-credentials-by-department", state.analyticsPlots.credentials_by_department.data, state.analyticsPlots.credentials_by_department.layout, config);
+      Plotly.react("plot-credentials-by-department", state.analyticsPlots.credentials_by_department.data, state.analyticsPlots.credentials_by_department.layout, config);
     }
     if (state.analyticsPlots.expiry_timeline) {
-      Plotly.newPlot("plot-expiry-timeline", state.analyticsPlots.expiry_timeline.data, state.analyticsPlots.expiry_timeline.layout, config);
+      Plotly.react("plot-expiry-timeline", state.analyticsPlots.expiry_timeline.data, state.analyticsPlots.expiry_timeline.layout, config);
     }
     if (state.analyticsPlots.action_distribution) {
-      Plotly.newPlot("plot-action-distribution", state.analyticsPlots.action_distribution.data, state.analyticsPlots.action_distribution.layout, config);
+      Plotly.react("plot-action-distribution", state.analyticsPlots.action_distribution.data, state.analyticsPlots.action_distribution.layout, config);
     }
     if (state.analyticsPlots.audit_activity) {
-      Plotly.newPlot("plot-audit-activity", state.analyticsPlots.audit_activity.data, state.analyticsPlots.audit_activity.layout, config);
+      Plotly.react("plot-audit-activity", state.analyticsPlots.audit_activity.data, state.analyticsPlots.audit_activity.layout, config);
     }
     if (state.analyticsPlots.rotation_status) {
-      Plotly.newPlot("plot-rotation-status", state.analyticsPlots.rotation_status.data, state.analyticsPlots.rotation_status.layout, config);
+      Plotly.react("plot-rotation-status", state.analyticsPlots.rotation_status.data, state.analyticsPlots.rotation_status.layout, config);
     }
     if (state.analyticsPlots.verification_status) {
-      Plotly.newPlot("plot-verification-status", state.analyticsPlots.verification_status.data, state.analyticsPlots.verification_status.layout, config);
+      Plotly.react("plot-verification-status", state.analyticsPlots.verification_status.data, state.analyticsPlots.verification_status.layout, config);
     }
     if (state.analyticsPlots.rotation_vs_verification) {
-      Plotly.newPlot("plot-rotation-vs-verification", state.analyticsPlots.rotation_vs_verification.data, state.analyticsPlots.rotation_vs_verification.layout, config);
+      Plotly.react("plot-rotation-vs-verification", state.analyticsPlots.rotation_vs_verification.data, state.analyticsPlots.rotation_vs_verification.layout, config);
     }
   }
 }

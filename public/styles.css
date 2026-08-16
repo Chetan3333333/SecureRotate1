@@ -279,6 +279,11 @@ select:focus {
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
   gap: 14px;
   margin-bottom: 14px;
+  align-items: stretch;
+}
+
+#analytics .dashboard-grid {
+  grid-template-columns: repeat(2, 1fr);
 }
 
 .split-view {
@@ -841,6 +846,7 @@ pre {
   width: 100%;
   height: 350px;
   min-height: 350px;
+  overflow: hidden;
 }
 
 .plotly-container.tall {
@@ -853,8 +859,10 @@ pre {
 }
 
 .section-divider {
-  margin-top: 2rem;
-  margin-bottom: 1rem;
+  margin-top: 32px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
 }
 
 @media (max-width: 1100px) {
@@ -882,6 +890,7 @@ pre {
 
   .topbar,
   .dashboard-grid,
+  #analytics .dashboard-grid,
   .split-view,
   .rotation-body,
   .portal-shell {
