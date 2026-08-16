@@ -192,33 +192,86 @@
               <div id="factorBars" class="bar-chart"></div>
             </section>
           </div>
-          <div style="margin-top: 2rem;">
-            <h2>Advanced Analytics</h2>
+          <div class="section-divider">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Deep Dive</p>
+                <h2>Advanced Analytics</h2>
+              </div>
+            </div>
           </div>
-          <div class="dashboard-grid" style="margin-top: 1rem;">
+          <div class="dashboard-grid">
             <section class="panel">
-              <div id="plot-credentials-by-role" style="width: 100%; height: 350px;"></div>
-            </section>
-            <section class="panel">
-              <div id="plot-credentials-by-department" style="width: 100%; height: 350px;"></div>
-            </section>
-            <section class="panel" style="grid-column: 1 / -1;">
-              <div id="plot-expiry-timeline" style="width: 100%; height: 400px;"></div>
-            </section>
-            <section class="panel">
-              <div id="plot-action-distribution" style="width: 100%; height: 350px;"></div>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Credentials by Role</h2>
+                </div>
+              </div>
+              <div id="plot-credentials-by-role" class="plotly-container"></div>
             </section>
             <section class="panel">
-              <div id="plot-audit-activity" style="width: 100%; height: 350px;"></div>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Credentials by Department</h2>
+                </div>
+              </div>
+              <div id="plot-credentials-by-department" class="plotly-container"></div>
+            </section>
+            <section class="panel full-width">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Expiry Timeline</h2>
+                </div>
+              </div>
+              <div id="plot-expiry-timeline" class="plotly-container tall"></div>
             </section>
             <section class="panel">
-              <div id="plot-rotation-status" style="width: 100%; height: 350px;"></div>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Action Distribution</h2>
+                </div>
+              </div>
+              <div id="plot-action-distribution" class="plotly-container"></div>
             </section>
             <section class="panel">
-              <div id="plot-verification-status" style="width: 100%; height: 350px;"></div>
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Audit Activity</h2>
+                </div>
+              </div>
+              <div id="plot-audit-activity" class="plotly-container"></div>
             </section>
-            <section class="panel" style="grid-column: 1 / -1;">
-              <div id="plot-rotation-vs-verification" style="width: 100%; height: 400px;"></div>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Rotation Status</h2>
+                </div>
+              </div>
+              <div id="plot-rotation-status" class="plotly-container"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Verification Status</h2>
+                </div>
+              </div>
+              <div id="plot-verification-status" class="plotly-container"></div>
+            </section>
+            <section class="panel full-width">
+              <div class="panel-heading">
+                <div>
+                  <p class="eyebrow">Analytics</p>
+                  <h2>Rotation vs Verification</h2>
+                </div>
+              </div>
+              <div id="plot-rotation-vs-verification" class="plotly-container tall"></div>
             </section>
           </div>
         </section>
