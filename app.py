@@ -16,6 +16,9 @@ import re
 from email.message import EmailMessage
 from pathlib import Path
 
+import pandas as pd
+import plotly.express as px
+
 from flask import Flask, request, jsonify, send_from_directory, send_file
 
 
@@ -99,21 +102,108 @@ def classify(probability: float) -> str:
     return "Low"
 
 
-def feature_score(credential: sqlite3.Row | dict) -> tuple[float, list[dict]]:
+def feature_score(credential: sqlite3.Row | dict, conn: sqlite3.Connection) -> tuple[float, list[dict]]:
+    """Multi-feature behavioral risk model using the same formula as the ML training data."""
     days = int(credential["days_to_expiry"])
-    
+    cred_id = credential["id"]
+
+    # --- Collect features from the database ---
+    # Rotation stats
+    rotations = conn.execute(
+        "SELECT status, verification_status FROM rotation_history WHERE credential_id = ?", (cred_id,)
+    ).fetchall()
+    total_rotations = len(rotations)
+    successful_rotations = sum(1 for r in rotations if r["verification_status"] == "Verified")
+    failed_rotations = sum(1 for r in rotations if r["verification_status"] == "failed" or r["status"] == "failed")
+
+    # Reminders ignored = notifications that were never acknowledged
+    notifs = conn.execute(
+        "SELECT status, created_at, acknowledged_at FROM notifications WHERE credential_id = ?", (cred_id,)
+    ).fetchall()
+    reminders_ignored = sum(1 for n in notifs if n["status"] in ("Sent", "Reminded", "Escalated") and not n["acknowledged_at"])
+
+    # Average response hours for acknowledged notifications
+    response_hours_list = []
+    for n in notifs:
+        if n["acknowledged_at"] and n["created_at"]:
+            try:
+                created = datetime.fromisoformat(n["created_at"])
+                acked = datetime.fromisoformat(n["acknowledged_at"])
+                delta_hours = max(0, (acked - created).total_seconds() / 3600)
+                response_hours_list.append(delta_hours)
+            except (ValueError, TypeError):
+                pass
+    avg_response_hours = sum(response_hours_list) / len(response_hours_list) if response_hours_list else 48.0
+
+    # Password strength heuristic (based on hash length and salt presence)
+    pwd_hash = credential.get("password_hash", "") if isinstance(credential, dict) else (credential["password_hash"] if "password_hash" in credential.keys() else "")
+    pwd_salt = credential.get("password_salt", "") if isinstance(credential, dict) else (credential["password_salt"] if "password_salt" in credential.keys() else "")
+    password_strength = min(10, max(3, len(pwd_hash) // 16 + (3 if pwd_salt else 0)))
+
+    # MFA status
+    uses_mfa = int(credential.get("uses_mfa", 0) if isinstance(credential, dict) else (credential["uses_mfa"] if "uses_mfa" in credential.keys() else 0))
+
+    # --- Apply the breach-score formula (adapted from generate_large_ml.py) ---
+    # Base score starts with expiry proximity contribution
+    score = 0.0
+
+    # Expiry proximity: expired passwords are highest risk, approaching expiry scales up
+    if days < 0:
+        score += 40 + min(60, (-days) * 4)         # 40-100 for expired
+    elif days <= 3:
+        score += 35                                  # Critical window
+    elif days <= 7:
+        score += 25                                  # Urgent window
+    elif days <= 15:
+        score += max(5, 20 - days)                   # Approaching expiry
+    elif days <= 30:
+        score += 5                                   # Mild concern
+
+    # Behavioral factors (from generate_large_ml.py)
+    score += reminders_ignored * 10
+    score += failed_rotations * 12
+    score -= successful_rotations * 8
+    score -= password_strength * 3
+    score -= uses_mfa * 15
+    score += (avg_response_hours / 24) * 3
+
+    # Normalize to 0.0 - 1.0
+    probability = min(1.0, max(0.0, score / 100.0))
+
+    # --- Build factors list ---
     factors = []
     if days < 0:
-        factors.append({"label": "Expiry window", "weight": 1.0, "evidence": "Expired"})
-        return 1.0, factors
+        expiry_contrib = (40 + min(60, (-days) * 4)) / 100.0
+        factors.append({"label": "Expired password", "weight": round(expiry_contrib, 3), "evidence": f"Expired {-days} days ago"})
+    elif days <= 3:
+        factors.append({"label": "Expiry window", "weight": 0.35, "evidence": f"{days} days remaining"})
+    elif days <= 7:
+        factors.append({"label": "Expiry window", "weight": 0.25, "evidence": f"{days} days remaining"})
     elif days <= 15:
-        # Scale probability from 0.8 at 0 days down to 0.3 at 15 days
-        prob = 0.8 - ((15 - days) / 15.0) * 0.5
-        factors.append({"label": "Expiry window", "weight": prob, "evidence": f"{days} days remaining"})
-        return prob, factors
+        factors.append({"label": "Expiry window", "weight": round(max(5, 20 - days) / 100, 3), "evidence": f"{days} days remaining"})
+    elif days <= 30:
+        factors.append({"label": "Expiry window", "weight": 0.05, "evidence": f"{days} days remaining"})
     else:
-        factors.append({"label": "Expiry window", "weight": 0.05, "evidence": "Healthy"})
-        return 0.05, factors
+        factors.append({"label": "Expiry window", "weight": 0.0, "evidence": "Healthy"})
+
+    if reminders_ignored > 0:
+        factors.append({"label": "Reminders ignored", "weight": round(reminders_ignored * 10 / 100, 3), "evidence": f"{reminders_ignored} unacknowledged alerts"})
+    if failed_rotations > 0:
+        factors.append({"label": "Failed rotations", "weight": round(failed_rotations * 12 / 100, 3), "evidence": f"{failed_rotations} of {total_rotations} rotations failed"})
+    if successful_rotations > 0:
+        factors.append({"label": "Successful rotations", "weight": round(-successful_rotations * 8 / 100, 3), "evidence": f"{successful_rotations} verified rotations"})
+    if not uses_mfa:
+        factors.append({"label": "No MFA", "weight": 0.15, "evidence": "Multi-factor authentication disabled"})
+    else:
+        factors.append({"label": "MFA enabled", "weight": -0.15, "evidence": "Multi-factor authentication active"})
+    if avg_response_hours > 24:
+        factors.append({"label": "Slow response time", "weight": round((avg_response_hours / 24) * 3 / 100, 3), "evidence": f"Avg {round(avg_response_hours, 1)}h to respond"})
+    factors.append({"label": "Password strength", "weight": round(-password_strength * 3 / 100, 3), "evidence": f"Score: {password_strength}/10"})
+
+    # Sort factors by absolute weight descending
+    factors.sort(key=lambda f: abs(f["weight"]), reverse=True)
+
+    return probability, factors
 
 
 def recommend_action(credential: sqlite3.Row | dict, risk: str, probability: float, factors: list[dict]) -> dict:
@@ -135,9 +225,23 @@ def recommend_action(credential: sqlite3.Row | dict, risk: str, probability: flo
         action = "Monitor"
         urgency = "Low"
 
+    # Dynamic stakeholders based on risk severity
     stakeholders = ["Account Owner", "Security Team"]
-    approval_required = False
-    explanation = f"{credential['username']} is {risk.lower()} risk. It expires in {days} days."
+    if risk in ("Critical", "High"):
+        stakeholders.append("CISO")
+    if risk == "Critical":
+        stakeholders.append("Compliance Team")
+
+    # Approval required for high-risk items
+    approval_required = risk in ("Critical", "High")
+
+    # Richer explanation referencing top contributing factors
+    top_risk_factors = [f for f in factors if f["weight"] > 0][:3]
+    if top_risk_factors:
+        factor_reasons = ", ".join(f"{f['label'].lower()} ({f['evidence'].lower()})" for f in top_risk_factors)
+        explanation = f"{credential['username']} is {risk.lower()} risk (score {round(probability * 100)}%). Top drivers: {factor_reasons}."
+    else:
+        explanation = f"{credential['username']} is {risk.lower()} risk. It expires in {days} days. No significant risk factors detected."
 
     return {
         "action": action,
@@ -179,6 +283,7 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
     password = required_text(payload, "password", "Password")
     owner = required_text(payload, "owner", "Owner name")
     expiry_date = required_text(payload, "expiry_date", "Expiry date")
+    uses_mfa = int(payload.get("uses_mfa", 0))
 
     try:
         expiry = date.fromisoformat(expiry_date)
@@ -194,8 +299,8 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
         """
         INSERT INTO credentials (
             database_name, username, owner, expiry_date, status, secret_ref,
-            password_hash, password_salt, last_rotated_at, created_at
-        ) VALUES (?, ?, ?, ?, 'Submitted', ?, ?, ?, ?, ?)
+            password_hash, password_salt, last_rotated_at, created_at, uses_mfa
+        ) VALUES (?, ?, ?, ?, 'Submitted', ?, ?, ?, ?, ?, ?)
         """,
         (
             database_name,
@@ -207,6 +312,7 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
             salt,
             (today() - timedelta(days=credential_age)).isoformat(),
             iso_now(),
+            uses_mfa,
         ),
     )
     credential_id = cursor.lastrowid
@@ -288,6 +394,11 @@ def init_db() -> None:
             );
             """
         )
+        # Migration: add uses_mfa column if it doesn't exist yet
+        try:
+            conn.execute("ALTER TABLE credentials ADD COLUMN uses_mfa INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         count = conn.execute("SELECT COUNT(*) AS c FROM credentials").fetchone()["c"]
         if count:
             refresh_notifications(conn)
@@ -299,18 +410,18 @@ def init_db() -> None:
 
 def seed_credentials(conn: sqlite3.Connection) -> None:
     rows = [
-        ("MySQL", "john.doe@company.com", "John Doe", -1),
-        ("PostgreSQL", "alice.smith@company.com", "Alice Smith", 2),
-        ("Oracle", "bob.jenkins@company.com", "Bob Jenkins", 6),
-        ("SQL Server", "sarah.connor@company.com", "Sarah Connor", 9),
-        ("MySQL", "mike.ross@company.com", "Mike Ross", 18),
-        ("PostgreSQL", "harvey.specter@company.com", "Harvey Specter", 24),
-        ("Oracle", "rachel.zane@company.com", "Rachel Zane", 33),
-        ("SQL Server", "donna.paulsen@company.com", "Donna Paulsen", 41),
-        ("MySQL", "louis.litt@company.com", "Louis Litt", 57),
-        ("PostgreSQL", "jessica.pearson@company.com", "Jessica Pearson", 77),
-        ("Oracle", "katrina.bennett@company.com", "Katrina Bennett", 4),
-        ("SQL Server", "alex.williams@company.com", "Alex Williams", 120),
+        ("MySQL", "john.doe@company.com", "John Doe", -1, 0),
+        ("PostgreSQL", "alice.smith@company.com", "Alice Smith", 2, 1),
+        ("Oracle", "bob.jenkins@company.com", "Bob Jenkins", 6, 1),
+        ("SQL Server", "sarah.connor@company.com", "Sarah Connor", 9, 0),
+        ("MySQL", "mike.ross@company.com", "Mike Ross", 18, 1),
+        ("PostgreSQL", "harvey.specter@company.com", "Harvey Specter", 24, 1),
+        ("Oracle", "rachel.zane@company.com", "Rachel Zane", 33, 0),
+        ("SQL Server", "donna.paulsen@company.com", "Donna Paulsen", 41, 1),
+        ("MySQL", "louis.litt@company.com", "Louis Litt", 57, 1),
+        ("PostgreSQL", "jessica.pearson@company.com", "Jessica Pearson", 77, 1),
+        ("Oracle", "katrina.bennett@company.com", "Katrina Bennett", 4, 0),
+        ("SQL Server", "alex.williams@company.com", "Alex Williams", 120, 1),
     ]
 
     for row in rows:
@@ -320,8 +431,8 @@ def seed_credentials(conn: sqlite3.Connection) -> None:
             """
             INSERT INTO credentials (
                 database_name, username, owner, expiry_date, status, secret_ref,
-                password_hash, password_salt, last_rotated_at, created_at
-            ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?)
+                password_hash, password_salt, last_rotated_at, created_at, uses_mfa
+            ) VALUES (?, ?, ?, ?, 'Active', ?, ?, ?, ?, ?, ?)
             """,
             (
                 row[0],
@@ -332,7 +443,8 @@ def seed_credentials(conn: sqlite3.Connection) -> None:
                 hash_secret(placeholder_secret, salt),
                 salt,
                 (today() - timedelta(days=90 - row[3])).isoformat(),
-                iso_now()
+                iso_now(),
+                row[4],
             ),
         )
 
@@ -411,7 +523,7 @@ def enriched_credentials(conn: sqlite3.Connection) -> list[dict]:
         item = row_to_dict(row)
         expiry = date.fromisoformat(item["expiry_date"])
         item["days_to_expiry"] = (expiry - today()).days
-        probability, factors = feature_score(item)
+        probability, factors = feature_score(item, conn)
         risk = classify(probability)
         recommendation = recommend_action(item, risk, probability, factors)
         item["risk_probability"] = round(probability, 3)
@@ -474,6 +586,7 @@ def recommendation_payload(conn: sqlite3.Connection, query: dict) -> list[dict]:
             "risk": item["risk"],
             "risk_probability": item["risk_probability"],
             "days_to_expiry": item["days_to_expiry"],
+            "uses_mfa": item.get("uses_mfa", 0),
             **item["recommendation"],
             "top_factors": item["risk_factors"],
         }
@@ -511,7 +624,7 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
 
     item = row_to_dict(credential)
     item["days_to_expiry"] = (date.fromisoformat(item["expiry_date"]) - today()).days
-    probability, factors = feature_score(item)
+    probability, factors = feature_score(item, conn)
     risk = classify(probability)
     recommendation = recommend_action(item, risk, probability, factors)
 
@@ -684,6 +797,107 @@ def api_analytics():
     with connect() as conn:
         refresh_notifications(conn)
         return jsonify(analytics_payload(conn, get_query_dict()))
+
+@app.route("/api/analytics/plots", methods=["GET"])
+def api_analytics_plots():
+    import json as _json
+    with connect() as conn:
+        # Load tables into pandas DataFrames
+        credentials_df = pd.read_sql_query("SELECT * FROM credentials", conn)
+        audit_df = pd.read_sql_query("SELECT * FROM audit_logs", conn)
+        rotation_df = pd.read_sql_query("SELECT * FROM rotation_history", conn)
+        
+        plots = {}
+        
+        # 1. Credentials by Owner (role proxy)
+        try:
+            col = "role" if "role" in credentials_df.columns else "owner"
+            role_counts = credentials_df[col].value_counts().reset_index()
+            role_counts.columns = [col, "count"]
+            fig1 = px.bar(role_counts, x="count", y=col, orientation='h', title=f"Credentials by {col.title()}", color=col)
+            plots["credentials_by_role"] = fig1.to_json()
+        except Exception:
+            pass
+        
+        # 2. Credential Distribution by Department/Database
+        try:
+            col = "department" if "department" in credentials_df.columns else "database_name"
+            department_counts = credentials_df[col].value_counts().reset_index()
+            department_counts.columns = [col, "credential_count"]
+            fig2 = px.pie(department_counts, names=col, values="credential_count", title=f"Credential Distribution by {col.replace('_', ' ').title()}")
+            plots["credentials_by_department"] = fig2.to_json()
+        except Exception:
+            pass
+        
+        # 3. Credential Expiry Timeline
+        try:
+            if "expiry_date" in credentials_df.columns:
+                credentials_df["expiry_date"] = pd.to_datetime(credentials_df["expiry_date"], format='ISO8601', utc=True, errors='coerce')
+                expiry_counts = credentials_df["expiry_date"].dropna().dt.date.value_counts().sort_index().reset_index()
+                expiry_counts.columns = ["expiry_date", "credential_count"]
+                fig3 = px.line(expiry_counts, x="expiry_date", y="credential_count", title="Credential Expiry Timeline", markers=True)
+                plots["expiry_timeline"] = fig3.to_json()
+        except Exception:
+            pass
+        
+        # 4. Action Distribution
+        try:
+            if "action" in audit_df.columns:
+                actions_count = audit_df["action"].value_counts().reset_index()
+                actions_count.columns = ["Action", "Count"]
+                fig4 = px.bar(actions_count, x="Action", y="Count", title="Action Distribution")
+                plots["action_distribution"] = fig4.to_json()
+        except Exception:
+            pass
+        
+        # 5. Audit Activity Over Time
+        try:
+            if "created_at" in audit_df.columns:
+                audit_df["created_at"] = pd.to_datetime(audit_df["created_at"], format='ISO8601', utc=True, errors='coerce')
+                audit_df["date"] = audit_df["created_at"].dt.date
+                daily_activity = audit_df["date"].dropna().value_counts().sort_index().reset_index()
+                daily_activity.columns = ["date", "event_count"]
+                fig5 = px.line(daily_activity, x="date", y="event_count", markers=True, title="Audit Activity Over Time")
+                plots["audit_activity"] = fig5.to_json()
+        except Exception:
+            pass
+        
+        # 6. Credential Rotation Status
+        try:
+            if "status" in rotation_df.columns:
+                status_counts = rotation_df["status"].value_counts().reset_index()
+                status_counts.columns = ["status", "count"]
+                fig6 = px.bar(status_counts, x="status", y="count", title="Credential Rotation Status")
+                plots["rotation_status"] = fig6.to_json()
+        except Exception:
+            pass
+        
+        # 7. Verification status distribution
+        try:
+            if "verification_status" in rotation_df.columns:
+                verification_status_counts = rotation_df["verification_status"].value_counts().sort_index().reset_index()
+                verification_status_counts.columns = ["verification_status", "counts"]
+                fig7 = px.pie(verification_status_counts, names="verification_status", values="counts", title="Verification Status Distribution")
+                plots["verification_status"] = fig7.to_json()
+        except Exception:
+            pass
+        
+        # 8. Rotation Status vs Verification Status
+        try:
+            if "status" in rotation_df.columns and "verification_status" in rotation_df.columns:
+                fig8 = px.bar(rotation_df, x="status", color="verification_status", barmode="group", title="Rotation Status vs Verification Status")
+                plots["rotation_vs_verification"] = fig8.to_json()
+        except Exception:
+            pass
+        
+        # Parse strings back into dictionaries so jsonify doesn't double-escape them
+        for k in list(plots.keys()):
+            try:
+                plots[k] = _json.loads(plots[k])
+            except Exception:
+                del plots[k]
+            
+        return jsonify(plots)
 
 @app.route("/api/credentials/<int:credential_id>/test-alert", methods=["POST"])
 def api_test_alert(credential_id):

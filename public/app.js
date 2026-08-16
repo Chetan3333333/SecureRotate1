@@ -3,11 +3,12 @@ const state = {
   credentials: [],
   notifications: [],
   recommendations: [],
+  audit: [],
   analytics: null,
+  analyticsPlots: null,
   filters: {
     search: "",
     risk: "All",
-    account_type: "All",
   },
   selectedId: null,
   notificationFilter: "All",
@@ -42,7 +43,6 @@ function queryString() {
   Object.entries(state.filters).forEach(([key, value]) => {
     if (value && value !== "All") params.set(key, value);
   });
-  if (state.filters.search) params.set("search", state.filters.search);
   return params.toString();
 }
 
@@ -58,13 +58,14 @@ async function api(path, options = {}) {
 
 async function refreshAll() {
   const qs = queryString();
-  const [summary, credentials, recommendations, notifications, audit, analytics] = await Promise.all([
+  const [summary, credentials, recommendations, notifications, audit, analytics, analyticsPlots] = await Promise.all([
     api(`/api/summary?${qs}`),
     api(`/api/credentials?${qs}`),
     api(`/api/recommendations?${qs}`),
     api("/api/notifications"),
     api("/api/audit"),
     api(`/api/analytics?${qs}`),
+    api(`/api/analytics/plots`).catch(() => null),
   ]);
   state.summary = summary;
   state.credentials = credentials;
@@ -72,6 +73,7 @@ async function refreshAll() {
   state.notifications = notifications;
   state.audit = audit;
   state.analytics = analytics;
+  state.analyticsPlots = analyticsPlots;
   if (!state.selectedId && credentials.length) state.selectedId = credentials[0].id;
   if (!credentials.some((item) => item.id === state.selectedId) && credentials.length) {
     state.selectedId = credentials[0].id;
@@ -95,7 +97,6 @@ function render() {
   renderExplorerRows();
   renderDetailPanel();
   renderRecommendations();
-  renderRotationTarget();
   renderNotifications();
   renderAudit();
   renderAnalytics();
@@ -108,7 +109,6 @@ function renderMetrics() {
     ["Expiring Soon", state.summary.expiring, "inside seven-day alert window"],
     ["Critical Risk", state.summary.critical, "requires urgent ownership"],
     ["Expired", state.summary.expired, "access outage risk"],
-    ["Verified Rotations", state.summary.rotation_success, "successful demo executions"],
   ];
   $("#metricGrid").innerHTML = metrics
     .map(([label, value, hint]) => `
@@ -235,40 +235,56 @@ function renderDetailPanel() {
 
 function renderRecommendations() {
   $("#recommendationList").innerHTML = state.recommendations
-    .map((item) => `
-      <article class="recommendation-item">
-        <div class="rec-topline">
-          <div>
-            <p class="eyebrow">${escapeHtml(item.urgency)} urgency</p>
-            <h2>${escapeHtml(item.database_name)}</h2>
-            <p class="muted">${escapeHtml(item.username)} - ${escapeHtml(expiryText(item.days_to_expiry))}</p>
-          </div>
-          ${riskPill(item.risk)}
-        </div>
-        <h3>${escapeHtml(item.action)}</h3>
-        <p>${escapeHtml(item.explanation)}</p>
-        <div class="stakeholders">${item.stakeholders.map((name) => `<span>${escapeHtml(name)}</span>`).join("")}</div>
-        <button class="small-button" data-select="${item.credential_id}" data-view-target="rotation">Inspect Rotation</button>
-      </article>
-    `)
-    .join("");
-}
+    .map(function (item) {
+      var factors = (item.top_factors || []).slice(0, 5);
+      var factorBarsHtml = "";
+      if (factors.length) {
+        factorBarsHtml = '<div class="factor-bars">';
+        for (var i = 0; i < factors.length; i++) {
+          var f = factors[i];
+          var absWeight = Math.min(Math.abs(f.weight) * 100, 100);
+          var cls = f.weight >= 0 ? "positive" : "negative";
+          factorBarsHtml += '<div class="factor-bar">' +
+            '<span class="factor-label">' + escapeHtml(f.label) + '</span>' +
+            '<span class="factor-track"><span class="factor-fill ' + cls + '" style="width:' + absWeight + '%"></span></span>' +
+            '<span class="factor-evidence">' + escapeHtml(f.evidence) + '</span>' +
+            '</div>';
+        }
+        factorBarsHtml += '</div>';
+      }
 
-function renderRotationTarget() {
-  const item = selectedCredential();
-  if (!item) return;
-  $("#rotationTarget").innerHTML = `
-    <p class="eyebrow">Selected account</p>
-    <h2>${escapeHtml(item.database_name)}</h2>
-    <p class="muted">${escapeHtml(item.username)}</p>
-    <div class="detail-grid">
-      <div class="detail-stat"><span>Risk</span><strong>${escapeHtml(item.risk)} ${Math.round(item.risk_probability * 100)}%</strong></div>
-      <div class="detail-stat"><span>Expiry</span><strong>${escapeHtml(expiryText(item.days_to_expiry))}</strong></div>
-      <div class="detail-stat"><span>Approval</span><strong>${item.recommendation.approval_required ? "Required" : "Not required"}</strong></div>
-      <div class="detail-stat"><span>Secret</span><strong>Never displayed</strong></div>
-    </div>
-    <p>${escapeHtml(item.recommendation.explanation)}</p>
-  `;
+      var badgesHtml = '<div class="rec-badges">';
+      if (item.approval_required) {
+        badgesHtml += '<span class="approval-badge">\u26A0 Approval Required</span>';
+      }
+      if (item.uses_mfa) {
+        badgesHtml += '<span class="mfa-badge mfa-on">\uD83D\uDD12 MFA On</span>';
+      } else {
+        badgesHtml += '<span class="mfa-badge mfa-off">\u26A0 No MFA</span>';
+      }
+      badgesHtml += '</div>';
+
+      var stakeholdersHtml = item.stakeholders.map(function(name) {
+        return '<span>' + escapeHtml(name) + '</span>';
+      }).join("");
+
+      return '<article class="recommendation-item">' +
+        '<div class="rec-topline">' +
+          '<div>' +
+            '<p class="eyebrow">' + escapeHtml(item.urgency) + ' urgency</p>' +
+            '<h2>' + escapeHtml(item.database_name) + '</h2>' +
+            '<p class="muted">' + escapeHtml(item.username) + ' - ' + escapeHtml(expiryText(item.days_to_expiry)) + '</p>' +
+          '</div>' +
+          riskPill(item.risk) +
+        '</div>' +
+        '<h3>' + escapeHtml(item.action) + '</h3>' +
+        '<p>' + escapeHtml(item.explanation) + '</p>' +
+        factorBarsHtml +
+        badgesHtml +
+        '<div class="stakeholders">' + stakeholdersHtml + '</div>' +
+      '</article>';
+    })
+    .join("");
 }
 
 function renderNotifications() {
@@ -337,59 +353,45 @@ function renderAudit() {
 }
 
 function renderAnalytics() {
-  if (!state.analytics) return;
-  renderBars("#expiryBuckets", state.analytics.expiry_buckets);
-  renderBars("#factorBars", state.analytics.top_factors);
+  if (state.analytics) {
+    renderBars("#expiryBuckets", state.analytics.expiry_buckets);
+    renderBars("#factorBars", state.analytics.top_factors);
+  }
+
+  if (state.analyticsPlots && typeof Plotly !== "undefined") {
+    const config = { responsive: true, displayModeBar: false };
+
+    if (state.analyticsPlots.credentials_by_role) {
+      Plotly.newPlot("plot-credentials-by-role", state.analyticsPlots.credentials_by_role.data, state.analyticsPlots.credentials_by_role.layout, config);
+    }
+    if (state.analyticsPlots.credentials_by_department) {
+      Plotly.newPlot("plot-credentials-by-department", state.analyticsPlots.credentials_by_department.data, state.analyticsPlots.credentials_by_department.layout, config);
+    }
+    if (state.analyticsPlots.expiry_timeline) {
+      Plotly.newPlot("plot-expiry-timeline", state.analyticsPlots.expiry_timeline.data, state.analyticsPlots.expiry_timeline.layout, config);
+    }
+    if (state.analyticsPlots.action_distribution) {
+      Plotly.newPlot("plot-action-distribution", state.analyticsPlots.action_distribution.data, state.analyticsPlots.action_distribution.layout, config);
+    }
+    if (state.analyticsPlots.audit_activity) {
+      Plotly.newPlot("plot-audit-activity", state.analyticsPlots.audit_activity.data, state.analyticsPlots.audit_activity.layout, config);
+    }
+    if (state.analyticsPlots.rotation_status) {
+      Plotly.newPlot("plot-rotation-status", state.analyticsPlots.rotation_status.data, state.analyticsPlots.rotation_status.layout, config);
+    }
+    if (state.analyticsPlots.verification_status) {
+      Plotly.newPlot("plot-verification-status", state.analyticsPlots.verification_status.data, state.analyticsPlots.verification_status.layout, config);
+    }
+    if (state.analyticsPlots.rotation_vs_verification) {
+      Plotly.newPlot("plot-rotation-vs-verification", state.analyticsPlots.rotation_vs_verification.data, state.analyticsPlots.rotation_vs_verification.layout, config);
+    }
+  }
 }
 
 function setView(view) {
   state.view = view;
   $$(".view").forEach((section) => section.classList.toggle("active", section.id === view));
   $$(".nav-tabs button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
-}
-
-function setStepper(index) {
-  $$("#rotationStepper .step").forEach((step, stepIndex) => {
-    step.classList.toggle("active", stepIndex <= index);
-  });
-}
-
-async function rotateSelected() {
-  const item = selectedCredential();
-  if (!item) return;
-  const button = $("#rotateButton");
-  button.disabled = true;
-  const lines = [
-    `Approval owner: demo-admin`,
-    `Target: ${item.database_name}/${item.username}`,
-    `Current risk: ${item.risk} (${Math.round(item.risk_probability * 100)}%)`,
-  ];
-  $("#rotationOutput").textContent = lines.join("\n");
-  for (let i = 0; i < 5; i += 1) {
-    setStepper(i);
-    const labels = ["approval captured", "strong password generated", "vault secret updated", "database login verified", "audit event committed"];
-    $("#rotationOutput").textContent += `\n${i + 1}. ${labels[i]}...`;
-    await new Promise((resolve) => setTimeout(resolve, 360));
-  }
-  try {
-    const result = await api("/api/rotate", {
-      method: "POST",
-      body: JSON.stringify({ credential_id: item.id, approved_by: "demo-admin" }),
-    });
-    $("#rotationOutput").textContent += `\n\nResult: ${result.status}`;
-    $("#rotationOutput").textContent += `\nVerification: ${result.verification_status}`;
-    $("#rotationOutput").textContent += `\n${result.details}`;
-    showToast(
-      result.status === "Completed" ? "Rotation Successful" : "Rotation Failed",
-      result.details
-    );
-    await refreshAll();
-  } catch (error) {
-    $("#rotationOutput").textContent += `\n\nRotation failed: ${error.message}`;
-    showToast("Rotation Error", error.message);
-  } finally {
-    button.disabled = false;
-  }
 }
 
 function bindEvents() {
@@ -460,7 +462,7 @@ function bindEvents() {
         const m = res.mailto;
         const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(m.to)}&su=${encodeURIComponent(m.subject)}&body=${encodeURIComponent(m.body)}`;
         window.open(gmailUrl, '_blank');
-        
+
         // Extract the magic link to make it clickable on the dashboard
         const magicLinkMatch = m.body.match(/(http:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
         if (magicLinkMatch) {
@@ -486,12 +488,9 @@ function bindEvents() {
       await refreshAll();
     }
   });
-  $("#rotateButton").addEventListener("click", rotateSelected);
   $("#resetDemo").addEventListener("click", async () => {
     await api("/api/demo/reset", { method: "POST", body: "{}" });
     state.selectedId = null;
-    $("#rotationOutput").textContent = "Demo state reset. Select a credential, then run a controlled rotation.";
-    setStepper(-1);
     await refreshAll();
   });
 }
@@ -520,7 +519,6 @@ function showToast(title, message, isHtml = false, duration = 4000) {
 }
 
 bindEvents();
-setStepper(-1);
 refreshAll().catch((error) => {
   document.body.innerHTML = `<main class="workspace"><section class="panel"><h1>SecureRotate could not load</h1><p>${escapeHtml(error.message)}</p></section></main>`;
 });

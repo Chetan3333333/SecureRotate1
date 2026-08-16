@@ -738,6 +738,104 @@ pre {
   border-color: #fecaca;
 }
 
+/* --- ML Recommendation Enhancements --- */
+.factor-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.factor-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.factor-bar .factor-label {
+  min-width: 120px;
+  color: var(--ink-muted, #5f6d78);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.factor-bar .factor-track {
+  flex: 1;
+  height: 6px;
+  background: #e9ecef;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.factor-bar .factor-fill {
+  height: 100%;
+  border-radius: 3px;
+  min-width: 2px;
+}
+
+.factor-bar .factor-fill.positive {
+  background: #e74c3c;
+}
+
+.factor-bar .factor-fill.negative {
+  background: #27ae60;
+}
+
+.factor-bar .factor-evidence {
+  font-size: 0.72rem;
+  color: var(--ink-muted, #5f6d78);
+  min-width: 80px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rec-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.approval-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ffe0b2;
+}
+
+.mfa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.mfa-badge.mfa-on {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+
+.mfa-badge.mfa-off {
+  background: #fce4ec;
+  color: #c62828;
+  border: 1px solid #f8bbd0;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -821,6 +919,14 @@ pre {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .factor-bar .factor-label {
+    min-width: 90px;
+    font-size: 0.7rem;
+  }
+  .factor-bar .factor-evidence {
+    display: none;
   }
 }
 
