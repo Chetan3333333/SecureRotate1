@@ -495,7 +495,7 @@ function bindEvents() {
         window.open(gmailUrl, '_blank');
 
         // Extract the magic link to make it clickable on the dashboard
-        const magicLinkMatch = m.body.match(/(http:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
+        const magicLinkMatch = m.body.match(/(https?:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
         if (magicLinkMatch) {
             showToast("Reminder Drafted", `Gmail opened in a new tab.<br><br><b>For testing:</b> <a href="${magicLinkMatch[1]}" target="_blank" style="color: #60a5fa; text-decoration: underline;">Click here to open the Magic Link</a> directly.`, true, 10000);
         } else {

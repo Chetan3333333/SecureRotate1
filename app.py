@@ -35,12 +35,24 @@ def extract_email(text):
     return match.group(0) if match else None
 
 def get_recipient_email(credential):
-    owner_val = credential["owner"] if "owner" in credential.keys() else ""
+    # Priority 1: dedicated owner_email field
+    if isinstance(credential, dict):
+        owner_email = credential.get("owner_email", "") or ""
+    else:
+        try:
+            owner_email = credential["owner_email"] if "owner_email" in credential.keys() else ""
+        except Exception:
+            owner_email = ""
+    if owner_email and "@" in owner_email:
+        return owner_email.strip()
+    # Priority 2: extract email from owner name
+    owner_val = credential["owner"] if (isinstance(credential, dict) and "owner" in credential) or (not isinstance(credential, dict) and "owner" in credential.keys()) else ""
     email = extract_email(owner_val)
-    if not email:
-        user_val = credential["username"] if "username" in credential.keys() else ""
-        email = extract_email(user_val)
-    return email
+    if email:
+        return email
+    # Priority 3: extract email from username
+    user_val = credential["username"] if (isinstance(credential, dict) and "username" in credential) or (not isinstance(credential, dict) and "username" in credential.keys()) else ""
+    return extract_email(user_val)
 
 def send_real_email(to_email, subject, body):
     sender = os.environ.get("SMTP_EMAIL")
@@ -290,6 +302,7 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
     password = required_text(payload, "password", "Password")
     owner = required_text(payload, "owner", "Owner name")
     expiry_date = required_text(payload, "expiry_date", "Expiry date")
+    owner_email = str(payload.get("owner_email", "")).strip()
     uses_mfa = int(payload.get("uses_mfa", 0))
 
     try:
@@ -306,8 +319,8 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
         """
         INSERT INTO credentials (
             database_name, username, owner, expiry_date, status, secret_ref,
-            password_hash, password_salt, last_rotated_at, created_at, uses_mfa
-        ) VALUES (?, ?, ?, ?, 'Submitted', ?, ?, ?, ?, ?, ?)
+            password_hash, password_salt, last_rotated_at, created_at, uses_mfa, owner_email
+        ) VALUES (?, ?, ?, ?, 'Submitted', ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             database_name,
@@ -320,6 +333,7 @@ def create_user_credential(conn: sqlite3.Connection, payload: dict) -> dict:
             (today() - timedelta(days=credential_age)).isoformat(),
             iso_now(),
             uses_mfa,
+            owner_email,
         ),
     )
     credential_id = cursor.lastrowid
@@ -406,6 +420,16 @@ def init_db() -> None:
             conn.execute("ALTER TABLE credentials ADD COLUMN uses_mfa INTEGER NOT NULL DEFAULT 0")
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migration: add owner_email column for dedicated contact email
+        try:
+            conn.execute("ALTER TABLE credentials ADD COLUMN owner_email TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        # Backfill: populate owner_email from username for existing rows that have email-style usernames
+        conn.execute("""
+            UPDATE credentials SET owner_email = username
+            WHERE owner_email = '' AND username LIKE '%@%'
+        """)
         count = conn.execute("SELECT COUNT(*) AS c FROM credentials").fetchone()["c"]
         if count:
             refresh_notifications(conn)
