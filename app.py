@@ -21,6 +21,13 @@ import plotly.express as px
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
 
+if os.path.exists(".env"):
+    with open(".env") as f:
+        for line in f:
+            if '=' in line and not line.strip().startswith('#'):
+                k, v = line.strip().split('=', 1)
+                os.environ[k] = v
+
 
 # --- EMAIL HELPER ---
 def extract_email(text):
@@ -69,8 +76,8 @@ DB_PATH = ROOT / "securerotate.db"
 MODEL_VERSION = "rf-surrogate-2.0-simplified"
 
 # --- SMTP Configuration for OTP Emails ---
-SMTP_EMAIL = "chetanchowdarychetan@gmail.com"
-SMTP_APP_PASSWORD = "ozpl bcwz rioc izeq"
+SMTP_EMAIL = os.environ.get("SMTP_EMAIL", "")
+SMTP_APP_PASSWORD = os.environ.get("SMTP_APP_PASSWORD", "")
 TOKEN_EXPIRY_MINUTES = 15
 
 
@@ -689,13 +696,6 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
 import re
 from email.message import EmailMessage
 
-if os.path.exists(".env"):
-    with open(".env") as f:
-        for line in f:
-            if '=' in line and not line.strip().startswith('#'):
-                k, v = line.strip().split('=', 1)
-                os.environ[k] = v
-
 app = Flask(__name__, static_folder="public", static_url_path="")
 
 @app.route("/")
@@ -723,13 +723,19 @@ def get_query_dict():
 @app.route("/api/login", methods=["POST"])
 def api_login():
     payload = request.json or {}
-    email = (payload.get("email") or payload.get("username") or "").strip().lower()
+
+    username = (
+        payload.get("username")
+        or payload.get("email")
+        or ""
+    ).strip().lower()
+
     password = (payload.get("password") or "").strip()
-    
-    valid_admins = ["admin@securedb.com", "admin", "admin@gmail.com", "administrator"]
-    valid_passwords = ["admin123", "admin", "admin@123", "admin1234", "password"]
-    
-    if email in valid_admins and password in valid_passwords:
+
+    # =====================================================
+    # ADMIN LOGIN
+    # =====================================================
+    if username == "admin" and password == "admin123":
         return jsonify({
             "ok": True,
             "role": "admin",
@@ -737,13 +743,84 @@ def api_login():
             "username": "admin",
             "owner": "Administrator"
         })
-        
-    # Check if username matches any registered credential
-    with connect() as conn:
-        cred = conn.execute("SELECT * FROM credentials WHERE lower(username) = ? OR lower(owner) = ?", (email, email)).fetchone()
-        if cred:
-            salt = cred["password_salt"]
-            if hash_secret(password, salt) == cred["password_hash"] or password in ["user123", "password123", "admin123", "password"]:
+
+    # =====================================================
+    # DEMO USERS
+    # =====================================================
+    demo_users = {
+        "john.doe@company.com": "John Doe",
+        "alice.smith@company.com": "Alice Smith",
+        "bob.jenkins@company.com": "Bob Jenkins",
+        "sarah.connor@company.com": "Sarah Connor",
+        "mike.ross@company.com": "Mike Ross",
+        "harvey.specter@company.com": "Harvey Specter",
+        "rachel.zane@company.com": "Rachel Zane",
+        "donna.paulsen@company.com": "Donna Paulsen",
+        "louis.litt@company.com": "Louis Litt",
+        "jessica.pearson@company.com": "Jessica Pearson",
+        "katrina.bennett@company.com": "Katrina Bennett",
+        "alex.williams@company.com": "Alex Williams"
+    }
+
+    # Demo accounts use password123.
+    if username in demo_users and password == "password123":
+
+        with connect() as conn:
+
+            cred = conn.execute(
+                """
+                SELECT *
+                FROM credentials
+                WHERE lower(username) = ?
+                LIMIT 1
+                """,
+                (username,)
+            ).fetchone()
+
+            if cred:
+
+                # Replace the old random demo password with
+                # a real secure password hash.
+                new_salt = secrets.token_hex(16)
+                new_hash = hash_secret(password, new_salt)
+
+                conn.execute(
+                    """
+                    UPDATE credentials
+                    SET password_hash = ?,
+                        password_salt = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        new_hash,
+                        new_salt,
+                        cred["id"]
+                    )
+                )
+
+                conn.execute(
+                    """
+                    INSERT INTO audit_logs
+                    (
+                        actor,
+                        action,
+                        entity,
+                        entity_id,
+                        details,
+                        created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        cred["owner"],
+                        "user_login",
+                        "credential",
+                        cred["id"],
+                        "Demo user authenticated successfully.",
+                        iso_now()
+                    )
+                )
+
                 return jsonify({
                     "ok": True,
                     "role": "user",
@@ -752,8 +829,49 @@ def api_login():
                     "owner": cred["owner"],
                     "credential_id": cred["id"]
                 })
-                
-    return jsonify({"error": "Invalid credentials. Use 'admin' and 'admin123' for admin, or create an account for user portal."}), 401
+
+    # =====================================================
+    # REGISTERED USER LOGIN
+    # =====================================================
+    with connect() as conn:
+
+        cred = conn.execute(
+            """
+            SELECT *
+            FROM credentials
+            WHERE lower(username) = ?
+               OR lower(owner) = ?
+            LIMIT 1
+            """,
+            (username, username)
+        ).fetchone()
+
+        if cred:
+
+            stored_hash = cred["password_hash"]
+            salt = cred["password_salt"]
+
+            if (
+                stored_hash
+                and salt
+                and hash_secret(password, salt) == stored_hash
+            ):
+                return jsonify({
+                    "ok": True,
+                    "role": "user",
+                    "redirect": "/user",
+                    "username": cred["username"],
+                    "owner": cred["owner"],
+                    "credential_id": cred["id"]
+                })
+
+    # =====================================================
+    # LOGIN FAILED
+    # =====================================================
+    return jsonify({
+        "ok": False,
+        "error": "Invalid username or password."
+    }), 401
 
 @app.route("/api/user/credentials", methods=["GET"])
 def api_user_credentials():
