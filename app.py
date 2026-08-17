@@ -720,7 +720,10 @@ def rotate_credential(conn: sqlite3.Connection, credential_id: int, actor: str) 
 import re
 from email.message import EmailMessage
 
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 app = Flask(__name__, static_folder="public", static_url_path="")
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 @app.route("/")
 def serve_index():
