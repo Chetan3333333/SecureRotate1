@@ -295,9 +295,21 @@ function renderRecommendations() {
 }
 
 function renderNotifications() {
+  const search = state.filters.search.trim().toLowerCase();
+
   const filtered = state.notifications.filter(item => {
-    if (state.notificationFilter === "All") return true;
-    return item.notification_status === state.notificationFilter;
+    const matchesStatus =
+      state.notificationFilter === "All" ||
+      item.notification_status === state.notificationFilter;
+
+    const matchesSearch =
+      !search ||
+      String(item.database_name || "").toLowerCase().includes(search) ||
+      String(item.username || "").toLowerCase().includes(search) ||
+      String(item.owner || "").toLowerCase().includes(search) ||
+      String(item.notification_status || "").toLowerCase().includes(search);
+
+    return matchesStatus && matchesSearch;
   });
 
   $("#notificationList").innerHTML = filtered
@@ -345,7 +357,19 @@ function renderNotifications() {
 }
 
 function renderAudit() {
-  $("#auditList").innerHTML = state.audit
+  const search = state.filters.search.trim().toLowerCase();
+
+  const filtered = state.audit.filter(item =>
+    !search ||
+    String(item.action || "").toLowerCase().includes(search) ||
+    String(item.actor || "").toLowerCase().includes(search) ||
+    String(item.entity || "").toLowerCase().includes(search) ||
+    String(item.entity_id || "").toLowerCase().includes(search) ||
+    String(item.details || "").toLowerCase().includes(search) ||
+    String(item.created_at || "").toLowerCase().includes(search)
+  );
+
+  $("#auditList").innerHTML = filtered
     .map((item) => `
       <article class="audit-item">
         <div class="audit-topline">
