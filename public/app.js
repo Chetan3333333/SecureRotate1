@@ -24,15 +24,6 @@ const riskColors = {
   "8-15 days": "#b45309",
   "16-30 days": "#0e7490",
   "31+ days": "#15803d",
-  "MFA enabled": "#15803d",
-  "Successful rotations": "#15803d",
-  "Password strength": "#15803d",
-  "Expired password": "#b91c1c",
-  "Failed rotations": "#b91c1c",
-  "Expiry window": "#ea580c",
-  "No MFA": "#ea580c",
-  "Reminders ignored": "#ea580c",
-  "Slow response time": "#b45309",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -105,21 +96,9 @@ function riskPill(risk) {
   return `<span class="pill risk-${escapeHtml(risk)}">${escapeHtml(risk)}</span>`;
 }
 
-function formatPostureData(data) {
-  if (!data) return [];
-  if (Array.isArray(data)) return data;
-  const order = ["Critical", "High", "Medium", "Low"];
-  const keys = Object.keys(data);
-  const orderedKeys = order.filter((k) => keys.includes(k)).concat(keys.filter((k) => !order.includes(k)));
-  return orderedKeys.map((label) => ({ label, value: Number(data[label]) || 0 }));
-}
-
 function render() {
   renderMetrics();
-  const postureData = formatPostureData(
-    state.summary?.credential_posture || state.summary?.risk_distribution || state.analytics?.credential_posture
-  );
-  renderBars("#riskBars", postureData);
+  renderBars("#riskBars", Object.entries(state.summary.risk_distribution).map(([label, value]) => ({ label, value })));
   renderExpiryList();
   renderCredentialRows();
   renderExplorerRows();
@@ -128,9 +107,7 @@ function render() {
   renderNotifications();
   renderAudit();
   renderAnalytics();
-  if (state.summary?.model_version) {
-    $("#modelVersion").textContent = state.summary.model_version;
-  }
+  $("#modelVersion").textContent = state.summary.model_version;
 }
 
 function renderMetrics() {
@@ -152,35 +129,16 @@ function renderMetrics() {
 }
 
 function renderBars(selector, rows) {
-  const el = typeof selector === "string" ? $(selector) : selector;
-  if (!el) return;
-  if (!rows || !Array.isArray(rows) || rows.length === 0) {
-    el.innerHTML = '<p class="muted" style="padding: 8px 0;">No data available</p>';
-    return;
-  }
-
-  // Calculate dynamic maximum based on absolute values to support both positive and negative weights
-  const max = Math.max(1, ...rows.map((row) => Math.abs(Number(row.value) || 0)));
-
-  el.innerHTML = rows
+  const max = Math.max(1, ...rows.map((row) => Number(row.value)));
+  $(selector).innerHTML = rows
     .map((row) => {
-      const rawVal = Number(row.value) || 0;
-      const absVal = Math.abs(rawVal);
-      // Zero values should have 0% width; non-zero values scaled proportionally (minimum 3% for visibility)
-      const width = rawVal === 0 ? 0 : Math.min(100, Math.max(3, (absVal / max) * 100));
-
-      let color = riskColors[row.label];
-      if (!color) {
-        color = rawVal < 0 ? "#15803d" : "#0e7490";
-      }
-
-      const displayVal = Number.isInteger(rawVal) ? rawVal : rawVal.toFixed(2);
-
+      const width = Math.max(4, (Number(row.value) / max) * 100);
+      const color = riskColors[row.label] || "#0e7490";
       return `
         <div class="bar-row">
-          <span class="bar-label" title="${escapeHtml(row.label)}">${escapeHtml(row.label)}</span>
+          <span class="bar-label">${escapeHtml(row.label)}</span>
           <span class="bar-track"><span class="bar-fill" style="width:${width}%;background:${color}"></span></span>
-          <span class="bar-value">${escapeHtml(displayVal)}</span>
+          <span class="bar-value">${escapeHtml(row.value)}</span>
         </div>
       `;
     })
@@ -354,7 +312,6 @@ function renderNotifications() {
     return matchesStatus && matchesSearch;
   });
 
-
   $("#notificationList").innerHTML = filtered
     .map((item) => {
       const status = item.notification_status;
@@ -400,7 +357,7 @@ function renderNotifications() {
 }
 
 function renderAudit() {
- const search = state.filters.search.trim().toLowerCase();
+  const search = state.filters.search.trim().toLowerCase();
 
   const filtered = state.audit.filter(item =>
     !search ||
@@ -426,69 +383,39 @@ function renderAudit() {
     .join("");
 }
 
-function renderPlot(containerId, plotData, emptyMessage) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-
-  const hasData = plotData && Array.isArray(plotData.data) && plotData.data.length > 0 && plotData.data.some(trace => {
-    if (!trace) return false;
-    if (trace.type === "pie") {
-      return Array.isArray(trace.values) && trace.values.length > 0 && trace.values.some(v => Number(v) > 0);
-    }
-    if (Array.isArray(trace.y) && trace.y.length > 0) return true;
-    if (Array.isArray(trace.x) && trace.x.length > 0) return true;
-    if (Array.isArray(trace.values) && trace.values.length > 0) return true;
-    return false;
-  });
-
-  if (!hasData) {
-    if (typeof Plotly !== "undefined") {
-      try { Plotly.purge(container); } catch (e) {}
-    }
-    container.innerHTML = `<div class="chart-empty-message" style="display: flex; align-items: center; justify-content: center; height: 100%; min-height: 220px; color: var(--muted, #64748b); font-size: 0.95rem; text-align: center; padding: 24px;">${escapeHtml(emptyMessage || "No data available")}</div>`;
-    return;
-  }
-
-  const msg = container.querySelector(".chart-empty-message");
-  if (msg) container.innerHTML = "";
-
-  const config = { responsive: true, displayModeBar: false };
-  const layout = {
-    ...plotData.layout,
-    autosize: true,
-    margin: plotData.layout?.margin || { l: 20, r: 20, t: 20, b: 20 },
-  };
-
-  try {
-    Plotly.react(containerId, plotData.data, layout, config);
-  } catch (err) {
-    console.error(`Error rendering chart ${containerId}:`, err);
-  }
-}
-
 function renderAnalytics() {
   if (state.analytics) {
-    const expiryBuckets = state.analytics.expiry_buckets || state.analytics.expiryBuckets || [];
-    const topFactors = state.analytics.top_factors || state.analytics.topFactors || state.analytics.risk_factors || state.analytics.riskFactors || [];
-    renderBars("#expiryBuckets", expiryBuckets);
-    renderBars("#factorBars", topFactors);
+    renderBars("#expiryBuckets", state.analytics.expiry_buckets);
+    renderBars("#factorBars", state.analytics.top_factors);
   }
 
   if (state.analyticsPlots && typeof Plotly !== "undefined") {
-    console.log("Rotation Status Data:", state.analyticsPlots.rotation_status);
-    console.log("Verification Status Data:", state.analyticsPlots.verification_status);
-    console.log("Rotation vs Verification Data:", state.analyticsPlots.rotation_vs_verification);
-    console.log("Expiry Timeline Data:", state.analyticsPlots.expiry_timeline);
-    console.log("Audit Activity Data:", state.analyticsPlots.audit_activity);
+    const config = { responsive: true, displayModeBar: false };
 
-    renderPlot("plot-credentials-by-role", state.analyticsPlots.credentials_by_role, "No role data available");
-    renderPlot("plot-credentials-by-department", state.analyticsPlots.credentials_by_department, "No department data available");
-    renderPlot("plot-expiry-timeline", state.analyticsPlots.expiry_timeline, "No expiry timeline data available");
-    renderPlot("plot-action-distribution", state.analyticsPlots.action_distribution, "No action distribution data available");
-    renderPlot("plot-audit-activity", state.analyticsPlots.audit_activity, "No audit activity data available");
-    renderPlot("plot-rotation-status", state.analyticsPlots.rotation_status, "No rotation data available");
-    renderPlot("plot-verification-status", state.analyticsPlots.verification_status, "No verification data available");
-    renderPlot("plot-rotation-vs-verification", state.analyticsPlots.rotation_vs_verification, "No rotation vs verification data available");
+    if (state.analyticsPlots.credentials_by_role) {
+      Plotly.react("plot-credentials-by-role", state.analyticsPlots.credentials_by_role.data, state.analyticsPlots.credentials_by_role.layout, config);
+    }
+    if (state.analyticsPlots.credentials_by_department) {
+      Plotly.react("plot-credentials-by-department", state.analyticsPlots.credentials_by_department.data, state.analyticsPlots.credentials_by_department.layout, config);
+    }
+    if (state.analyticsPlots.expiry_timeline) {
+      Plotly.react("plot-expiry-timeline", state.analyticsPlots.expiry_timeline.data, state.analyticsPlots.expiry_timeline.layout, config);
+    }
+    if (state.analyticsPlots.action_distribution) {
+      Plotly.react("plot-action-distribution", state.analyticsPlots.action_distribution.data, state.analyticsPlots.action_distribution.layout, config);
+    }
+    if (state.analyticsPlots.audit_activity) {
+      Plotly.react("plot-audit-activity", state.analyticsPlots.audit_activity.data, state.analyticsPlots.audit_activity.layout, config);
+    }
+    if (state.analyticsPlots.rotation_status) {
+      Plotly.react("plot-rotation-status", state.analyticsPlots.rotation_status.data, state.analyticsPlots.rotation_status.layout, config);
+    }
+    if (state.analyticsPlots.verification_status) {
+      Plotly.react("plot-verification-status", state.analyticsPlots.verification_status.data, state.analyticsPlots.verification_status.layout, config);
+    }
+    if (state.analyticsPlots.rotation_vs_verification) {
+      Plotly.react("plot-rotation-vs-verification", state.analyticsPlots.rotation_vs_verification.data, state.analyticsPlots.rotation_vs_verification.layout, config);
+    }
   }
 }
 
@@ -496,18 +423,6 @@ function setView(view) {
   state.view = view;
   $$(".view").forEach((section) => section.classList.toggle("active", section.id === view));
   $$(".nav-tabs button").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
-  if (view === "analytics") {
-    renderAnalytics();
-    if (typeof Plotly !== "undefined") {
-      setTimeout(() => {
-        $$(".plotly-container").forEach((el) => {
-          if (el.children.length > 0 && !el.querySelector(".chart-empty-message")) {
-            try { Plotly.Plots.resize(el); } catch (e) {}
-          }
-        });
-      }, 100);
-    }
-  }
 }
 
 function bindEvents() {
@@ -580,7 +495,7 @@ function bindEvents() {
         window.open(gmailUrl, '_blank');
 
         // Extract the magic link to make it clickable on the dashboard
-        const magicLinkMatch = m.body.match(/(http:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
+        const magicLinkMatch = m.body.match(/(https?:\/\/[^\s]+reset\/[a-zA-Z0-9_-]+)/);
         if (magicLinkMatch) {
             showToast("Reminder Drafted", `Gmail opened in a new tab.<br><br><b>For testing:</b> <a href="${magicLinkMatch[1]}" target="_blank" style="color: #60a5fa; text-decoration: underline;">Click here to open the Magic Link</a> directly.`, true, 10000);
         } else {
@@ -634,26 +549,9 @@ function showToast(title, message, isHtml = false, duration = 4000) {
   }, duration);
 }
 
-// Handle initial view if requested via URL path or hash
-if (window.location.pathname === "/analytics" || window.location.hash === "#analytics") {
-  state.view = "analytics";
-  setView("analytics");
-}
-
 bindEvents();
 refreshAll().catch((error) => {
   document.body.innerHTML = `<main class="workspace"><section class="panel"><h1>SecureRotate could not load</h1><p>${escapeHtml(error.message)}</p></section></main>`;
-});
-
-// Handle responsive Plotly chart resizing on window resize
-window.addEventListener("resize", () => {
-  if (state.view === "analytics" && typeof Plotly !== "undefined") {
-    $$(".plotly-container").forEach((el) => {
-      if (el.children.length > 0 && !el.querySelector(".chart-empty-message")) {
-        try { Plotly.Plots.resize(el); } catch (e) {}
-      }
-    });
-  }
 });
 
 // Auto-polling for live updates every 10 seconds
