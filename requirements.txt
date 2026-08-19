@@ -1,4 +1,6 @@
 Flask==3.0.3
 pandas
 plotly
+mysql-connector-python
+python-dotenv
 gunicorn

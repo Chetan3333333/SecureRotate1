@@ -1949,6 +1949,7 @@
                     localStorage.setItem('securedb_user', JSON.stringify({
                         username: data.username || username,
                         owner: data.owner || username,
+                        email: data.email || (username.includes("@") ? username : ""),
                         role: data.role || 'user'
                     }));
 
@@ -1966,6 +1967,7 @@
                 localStorage.setItem('securedb_user', JSON.stringify({
                     username: username,
                     owner: username,
+                    email: username.includes("@") ? username : "",
                     role: 'user'
                 }));
                 window.location.href = '/user';
@@ -2078,9 +2080,9 @@
             const payload = {
                 database_name: "PostgreSQL Production",
                 username: username || email,
+                email: email,
                 password: password,
                 owner: name,
-                owner_email: email,
                 expiry_date: expiryString
             };
 
@@ -2098,6 +2100,7 @@
                     localStorage.setItem('securedb_user', JSON.stringify({
                         username: username || email,
                         owner: name,
+                        email: email,
                         role: 'user'
                     }));
 
@@ -2120,6 +2123,7 @@
                 localStorage.setItem('securedb_user', JSON.stringify({
                     username: username || email,
                     owner: name,
+                    email: email,
                     role: 'user'
                 }));
                 alert(

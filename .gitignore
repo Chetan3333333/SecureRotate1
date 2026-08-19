@@ -1,7 +1,5 @@
 __pycache__/
 *.pyc
+securerotate.db
 .env
-.gemini/
-diff.txt
-notif_test.json
-notif_test.json
+venv/
